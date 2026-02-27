@@ -6,6 +6,7 @@ using CommunityManagement.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 
 namespace CommunityManagement.Infrastructure;
 
@@ -16,11 +17,11 @@ public static class DependencyInjection
         IConfiguration configuration)
     {
         var userConnStr = configuration.GetConnectionString("Supabase")
-            ?? configuration["SUPABASE_DB_URL"]
-            ?? throw new InvalidOperationException("ConnectionStrings:Supabase yapılandırması eksik.");
+            ?? BuildDbConnectionString(configuration)
+            ?? throw new InvalidOperationException("ConnectionStrings:Supabase veya DB_HOST+DB_PASSWORD yapılandırması eksik.");
         var serviceRoleConnStr = configuration.GetConnectionString("SupabaseServiceRole")
-            ?? configuration["SUPABASE_SERVICE_ROLE_DB_URL"]
-            ?? throw new InvalidOperationException("ConnectionStrings:SupabaseServiceRole yapılandırması eksik.");
+            ?? BuildDbConnectionString(configuration)
+            ?? throw new InvalidOperationException("ConnectionStrings:SupabaseServiceRole veya DB_HOST+DB_PASSWORD yapılandırması eksik.");
 
         services.AddSingleton<IDbConnectionFactory>(
             _ => new DbConnectionFactory(userConnStr, serviceRoleConnStr));
@@ -54,5 +55,22 @@ public static class DependencyInjection
         services.AddHostedService<AccountDeletionCleanupService>();
 
         return services;
+    }
+
+    private static string? BuildDbConnectionString(IConfiguration configuration)
+    {
+        var host = configuration["DB_HOST"];
+        var password = configuration["DB_PASSWORD"];
+        if (host == null || password == null) return null;
+
+        return new NpgsqlConnectionStringBuilder
+        {
+            Host = host,
+            Port = int.TryParse(configuration["DB_PORT"], out var port) ? port : 5432,
+            Database = configuration["DB_NAME"] ?? "postgres",
+            Username = configuration["DB_USER"] ?? "postgres",
+            Password = password,
+            SslMode = SslMode.Require
+        }.ConnectionString;
     }
 }
