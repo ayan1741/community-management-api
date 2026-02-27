@@ -14,11 +14,11 @@ public static class MemberEndpoints
 
         group.MapGet("/", async (
             Guid orgId,
+            IMediator mediator,
             [FromQuery] string? status,
             [FromQuery] string? role,
-            [FromQuery] int page,
-            [FromQuery] int pageSize,
-            IMediator mediator) =>
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20) =>
         {
             var statusEnum = status is not null && Enum.TryParse<MemberStatus>(status, true, out var s) ? s : (MemberStatus?)null;
             var roleEnum = role is not null && Enum.TryParse<MemberRole>(role, true, out var r) ? r : (MemberRole?)null;

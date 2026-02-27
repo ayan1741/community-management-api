@@ -36,10 +36,10 @@ public static class ApplicationEndpoints
 
         orgGroup.MapGet("/", async (
             Guid orgId,
+            IMediator mediator,
             [FromQuery] string? status,
-            [FromQuery] int page,
-            [FromQuery] int pageSize,
-            IMediator mediator) =>
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20) =>
         {
             var statusEnum = status is not null && Enum.TryParse<ApplicationStatus>(status, true, out var s)
                 ? s : (ApplicationStatus?)null;

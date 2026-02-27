@@ -23,11 +23,11 @@ public static class InvitationEndpoints
 
         group.MapGet("/", async (
             Guid orgId,
+            IMediator mediator,
             [FromQuery] string? status,
             [FromQuery] Guid? unitId,
-            [FromQuery] int page,
-            [FromQuery] int pageSize,
-            IMediator mediator) =>
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20) =>
         {
             var statusEnum = status is not null && Enum.TryParse<CodeStatus>(status, true, out var s) ? s : (CodeStatus?)null;
             var result = await mediator.Send(new GetInvitationsQuery(orgId, statusEnum, unitId, page, pageSize));
