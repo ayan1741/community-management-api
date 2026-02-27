@@ -79,11 +79,11 @@ public class MemberRepository : IMemberRepository
                     .ToList();
                 return new MemberListItem(
                     first.UserId, first.FullName, first.Phone, first.AvatarUrl,
-                    first.Role, first.Status, units, first.JoinedAt);
+                    first.Role, first.Status, units, new DateTimeOffset(first.JoinedAt, TimeSpan.Zero));
             })
             .ToList();
 
-        return (items, rows.FirstOrDefault()?.TotalCount ?? 0);
+        return (items, (int)(rows.FirstOrDefault()?.TotalCount ?? 0L));
     }
 
     public async Task<int> GetAdminCountAsync(Guid orgId, CancellationToken ct = default)
@@ -228,14 +228,25 @@ public class MemberRepository : IMemberRepository
                 al.new_values::text AS new_value,
                 al.created_at
             FROM public.audit_logs al
-            LEFT JOIN public.profiles p ON p.id = al.user_id
+            LEFT JOIN public.profiles p ON p.id = al.actor_id
             WHERE al.organization_id = @OrgId
-              AND al.entity_type = 'organization_member'
-              AND al.entity_id = @UserId::text
+              AND al.table_name = 'organization_members'
+              AND al.record_id = @UserId
             ORDER BY al.created_at DESC
             """;
-        return (await conn.QueryAsync<MemberHistoryItem>(sql, new { OrgId = orgId, UserId = userId })).ToList();
+        var rows = (await conn.QueryAsync<HistoryRow>(sql, new { OrgId = orgId, UserId = userId })).ToList();
+        return rows.Select(r => new MemberHistoryItem(
+            r.Action, r.ActorName, r.OldValue, r.NewValue,
+            new DateTimeOffset(r.CreatedAt, TimeSpan.Zero))).ToList();
     }
+
+    private record HistoryRow(
+        string Action,
+        string? ActorName,
+        string? OldValue,
+        string? NewValue,
+        DateTime CreatedAt
+    );
 
     private record MemberRow(
         Guid UserId,
@@ -246,7 +257,7 @@ public class MemberRepository : IMemberRepository
         string Status,
         string? UnitNumber,
         string? BlockName,
-        DateTimeOffset JoinedAt,
-        int TotalCount
+        DateTime JoinedAt,
+        long TotalCount
     );
 }

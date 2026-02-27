@@ -100,9 +100,11 @@ public class InvitationRepository : IInvitationRepository
 
         var items = rows.Select(r => new InvitationListItem(
             r.InvitationId, r.InvitationCode, r.UnitNumber, r.BlockName,
-            r.CodeStatus, r.ApplicationStatus, r.ExpiresAt, r.CreatedAt)).ToList();
+            r.CodeStatus, r.ApplicationStatus,
+            new DateTimeOffset(r.ExpiresAt, TimeSpan.Zero),
+            new DateTimeOffset(r.CreatedAt, TimeSpan.Zero))).ToList();
 
-        return (items, rows.FirstOrDefault()?.TotalCount ?? 0);
+        return (items, (int)(rows.FirstOrDefault()?.TotalCount ?? 0L));
     }
 
     public async Task UpdateStatusAsync(Guid invitationId, CodeStatus status, CancellationToken ct = default)
@@ -135,8 +137,8 @@ public class InvitationRepository : IInvitationRepository
         string BlockName,
         string CodeStatus,
         string? ApplicationStatus,
-        DateTimeOffset ExpiresAt,
-        DateTimeOffset CreatedAt,
-        int TotalCount
+        DateTime ExpiresAt,
+        DateTime CreatedAt,
+        long TotalCount
     );
 }

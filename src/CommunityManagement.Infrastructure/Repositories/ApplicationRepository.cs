@@ -102,9 +102,9 @@ public class ApplicationRepository : IApplicationRepository
         var items = rows.Select(r => new ApplicationListItem(
             r.ApplicationId, r.ApplicantName, r.ApplicantPhone,
             r.UnitNumber, r.BlockName, r.ResidentType,
-            r.SubmittedAt, r.DuplicateWarning)).ToList();
+            new DateTimeOffset(r.SubmittedAt, TimeSpan.Zero), r.DuplicateWarning)).ToList();
 
-        return (items, rows.FirstOrDefault()?.TotalCount ?? 0);
+        return (items, (int)(rows.FirstOrDefault()?.TotalCount ?? 0L));
     }
 
     public async Task<IReadOnlyList<ApplicationEntity>> GetByApplicantAsync(Guid userId, CancellationToken ct = default)
@@ -165,8 +165,8 @@ public class ApplicationRepository : IApplicationRepository
         string UnitNumber,
         string BlockName,
         string ResidentType,
-        DateTimeOffset SubmittedAt,
+        DateTime SubmittedAt,
         bool DuplicateWarning,
-        int TotalCount
+        long TotalCount
     );
 }
