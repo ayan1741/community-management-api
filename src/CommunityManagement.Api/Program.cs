@@ -78,5 +78,7 @@ app.MapOrganizationEndpoints();
 app.MapInvitationEndpoints();
 app.MapApplicationEndpoints();
 app.MapMemberEndpoints();
+app.MapBlockEndpoints();
+app.MapUnitEndpoints();
 
 app.Run();
