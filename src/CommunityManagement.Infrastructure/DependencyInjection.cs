@@ -32,6 +32,8 @@ public static class DependencyInjection
         services.AddScoped<IInvitationRepository, InvitationRepository>();
         services.AddScoped<IApplicationRepository, ApplicationRepository>();
         services.AddScoped<IMemberRepository, MemberRepository>();
+        services.AddScoped<IBlockRepository, BlockRepository>();
+        services.AddScoped<IUnitRepository, UnitRepository>();
 
         // Services
         services.AddHttpContextAccessor();
