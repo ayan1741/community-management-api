@@ -16,8 +16,10 @@ builder.Services.AddOpenApi();
 
 // Authentication — Supabase JWT
 var supabaseUrl = builder.Configuration["Supabase:Url"]
+    ?? builder.Configuration["SUPABASE_URL"]
     ?? throw new InvalidOperationException("Supabase:Url yapılandırması eksik.");
 var jwtSecret = builder.Configuration["Supabase:JwtSecret"]
+    ?? builder.Configuration["SUPABASE_JWT_SECRET"]
     ?? throw new InvalidOperationException("Supabase:JwtSecret yapılandırması eksik.");
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

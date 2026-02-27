@@ -16,8 +16,10 @@ public static class DependencyInjection
         IConfiguration configuration)
     {
         var userConnStr = configuration.GetConnectionString("Supabase")
+            ?? configuration["SUPABASE_DB_URL"]
             ?? throw new InvalidOperationException("ConnectionStrings:Supabase yapılandırması eksik.");
         var serviceRoleConnStr = configuration.GetConnectionString("SupabaseServiceRole")
+            ?? configuration["SUPABASE_SERVICE_ROLE_DB_URL"]
             ?? throw new InvalidOperationException("ConnectionStrings:SupabaseServiceRole yapılandırması eksik.");
 
         services.AddSingleton<IDbConnectionFactory>(
@@ -35,8 +37,10 @@ public static class DependencyInjection
         services.AddScoped<ICurrentUserService, CurrentUserService>();
 
         var supabaseUrl = configuration["Supabase:Url"]
+            ?? configuration["SUPABASE_URL"]
             ?? throw new InvalidOperationException("Supabase:Url yapılandırması eksik.");
         var serviceRoleKey = configuration["Supabase:ServiceRoleKey"]
+            ?? configuration["SUPABASE_SERVICE_ROLE_KEY"]
             ?? throw new InvalidOperationException("Supabase:ServiceRoleKey yapılandırması eksik.");
 
         services.AddHttpClient<ISessionService, SupabaseSessionService>(client =>
