@@ -7,11 +7,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="MediatR" Version="12.4.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.3" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.6" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CommunityManagement.Application\CommunityManagement.Application.csproj" />
+    <ProjectReference Include="..\CommunityManagement.Infrastructure\CommunityManagement.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

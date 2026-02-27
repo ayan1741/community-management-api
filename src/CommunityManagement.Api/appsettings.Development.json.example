@@ -1,0 +1,21 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "ConnectionStrings": {
+    "Supabase": "Host=db.YOUR_PROJECT_REF.supabase.co;Port=5432;Database=postgres;Username=postgres;Password=YOUR_DB_PASSWORD;SSL Mode=Require",
+    "SupabaseServiceRole": "Host=db.YOUR_PROJECT_REF.supabase.co;Port=5432;Database=postgres;Username=postgres;Password=YOUR_DB_PASSWORD;SSL Mode=Require"
+  },
+  "Supabase": {
+    "Url": "https://YOUR_PROJECT_REF.supabase.co",
+    "AnonKey": "your_supabase_anon_key",
+    "ServiceRoleKey": "your_supabase_service_role_key",
+    "JwtSecret": "your_supabase_jwt_secret"
+  },
+  "Cors": {
+    "AllowedOrigins": [ "http://localhost:5173" ]
+  }
+}
