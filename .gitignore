@@ -1,0 +1,9 @@
+## .NET gitignore
+bin/
+obj/
+*.user
+.vs/
+*.suo
+.vscode/
+appsettings.Development.json
+*.env
