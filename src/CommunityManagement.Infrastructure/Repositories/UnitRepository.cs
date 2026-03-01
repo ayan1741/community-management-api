@@ -1,6 +1,6 @@
 using CommunityManagement.Core.Entities;
 using CommunityManagement.Core.Repositories;
-using CommunityManagement.Infrastructure.Common;
+using CommunityManagement.Core.Common;
 using Dapper;
 
 namespace CommunityManagement.Infrastructure.Repositories;

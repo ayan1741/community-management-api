@@ -80,5 +80,11 @@ app.MapApplicationEndpoints();
 app.MapMemberEndpoints();
 app.MapBlockEndpoints();
 app.MapUnitEndpoints();
+app.MapDueTypeEndpoints();
+app.MapDuesPeriodEndpoints();
+app.MapAccrualEndpoints();
+app.MapPaymentEndpoints();
+app.MapLateFeeEndpoints();
+app.MapDuesSummaryEndpoints();
 
 app.Run();

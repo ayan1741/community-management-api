@@ -1,13 +1,9 @@
+using CommunityManagement.Core.Common;
 using Npgsql;
 using System.Data;
+using System.Data.Common;
 
 namespace CommunityManagement.Infrastructure.Common;
-
-public interface IDbConnectionFactory
-{
-    IDbConnection CreateUserConnection();
-    IDbConnection CreateServiceRoleConnection();
-}
 
 public class DbConnectionFactory : IDbConnectionFactory
 {
@@ -22,4 +18,5 @@ public class DbConnectionFactory : IDbConnectionFactory
 
     public IDbConnection CreateUserConnection() => new NpgsqlConnection(_userConnectionString);
     public IDbConnection CreateServiceRoleConnection() => new NpgsqlConnection(_serviceRoleConnectionString);
+    public DbConnection CreateServiceRoleDbConnection() => new NpgsqlConnection(_serviceRoleConnectionString);
 }

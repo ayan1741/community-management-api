@@ -1,6 +1,6 @@
 using CommunityManagement.Core.Enums;
 using CommunityManagement.Core.Repositories;
-using CommunityManagement.Infrastructure.Common;
+using CommunityManagement.Core.Common;
 using Dapper;
 using ApplicationEntity = CommunityManagement.Core.Entities.Application;
 
