@@ -11,12 +11,13 @@ public class CreateOrganizationCommandHandlerTests
 {
     private readonly IOrganizationRepository _organizations = Substitute.For<IOrganizationRepository>();
     private readonly IMemberRepository _members = Substitute.For<IMemberRepository>();
+    private readonly IBlockRepository _blocks = Substitute.For<IBlockRepository>();
     private readonly ICurrentUserService _currentUser = Substitute.For<ICurrentUserService>();
     private readonly CreateOrganizationCommandHandler _sut;
 
     public CreateOrganizationCommandHandlerTests()
     {
-        _sut = new CreateOrganizationCommandHandler(_organizations, _members, _currentUser);
+        _sut = new CreateOrganizationCommandHandler(_organizations, _members, _blocks, _currentUser);
     }
 
     [Fact]
