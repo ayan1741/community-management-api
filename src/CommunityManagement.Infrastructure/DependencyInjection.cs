@@ -1,3 +1,4 @@
+using CommunityManagement.Core.Common;
 using CommunityManagement.Core.Repositories;
 using CommunityManagement.Core.Services;
 using CommunityManagement.Infrastructure.Common;
@@ -34,6 +35,12 @@ public static class DependencyInjection
         services.AddScoped<IMemberRepository, MemberRepository>();
         services.AddScoped<IBlockRepository, BlockRepository>();
         services.AddScoped<IUnitRepository, UnitRepository>();
+        services.AddScoped<IDueTypeRepository, DueTypeRepository>();
+        services.AddScoped<IDuesPeriodRepository, DuesPeriodRepository>();
+        services.AddScoped<IUnitDueRepository, UnitDueRepository>();
+        services.AddScoped<IPaymentRepository, PaymentRepository>();
+        services.AddScoped<ILateFeeRepository, LateFeeRepository>();
+        services.AddScoped<IOrganizationDueSettingsRepository, OrganizationDueSettingsRepository>();
 
         // Services
         services.AddHttpContextAccessor();
@@ -55,6 +62,8 @@ public static class DependencyInjection
 
         // Background services
         services.AddHostedService<AccountDeletionCleanupService>();
+        services.AddHostedService<BulkAccrualService>();
+        services.AddHostedService<BackgroundJobService>();
 
         return services;
     }

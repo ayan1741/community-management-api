@@ -1,7 +1,7 @@
 using CommunityManagement.Application.Common;
 using CommunityManagement.Core.Enums;
 using CommunityManagement.Core.Services;
-using CommunityManagement.Infrastructure.Common;
+using CommunityManagement.Core.Common;
 using Dapper;
 using Microsoft.AspNetCore.Http;
 using System.Security.Claims;

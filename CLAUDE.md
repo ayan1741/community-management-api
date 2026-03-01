@@ -55,8 +55,18 @@ Doldurulacak alanlar: `DB_PASSWORD`, `ServiceRoleKey`, `JwtSecret`
   `TotalCount` alanı `long` tanımla, dönüştürürken `(int)row.TotalCount` kullan.
 - **Dapper positional record**: Constructor parametre tipleri DB'den dönen Npgsql tipleriyle EXACT
   eşleşmeli. Tip uyuşmazlığı compile-time hatası değil, **runtime 500** verir — erken yakalamak zor.
+- **`date` → `DateTime` (NOT `DateOnly`)**: Npgsql 9.x, PostgreSQL `date` kolonlarını da `DateTime` döndürür.
+  `DateOnly` kullanırsan Dapper constructor eşleşmesi **runtime 500** verir. Row record'da `DateTime` kullan,
+  map'lerken `DateOnly.FromDateTime(row.DateField)`. Parametre gönderirken: `date.ToDateTime(TimeOnly.MinValue)`.
+- **`Dictionary<string?, V>` null key**: .NET Dictionary null key'i desteklemez. `string?` key içeren sözlükte
+  null değer için sentinel kullan (örn. `""`) ve dönüştürürken `cat == "" ? null : cat` uygula.
+- **Aynı connection'da paralel query**: Npgsql, tek connection üzerinde eş zamanlı iki command desteklemez.
+  `QueryAsync` çağrılarını `Task.WhenAll` yerine sıralı `await` ile çalıştır.
+- **`System.Text.Json` case-sensitive**: `JsonSerializer.Serialize(new { camelKey = val })` üretir,
+  Deserialize sınıfı `PascalKey` bekliyorsa null döner. Serialize'da PascalCase anonim nesne kullan.
 - **SQL kolon adları**: Her yeni query yazılmadan önce migration SQL ile karşılaştır.
-  `audit_logs` şeması: `actor_id` (user_id değil), `table_name` / `record_id` (entity_type / entity_id değil).
+  `audit_logs` şeması: `actor_id`, `table_name`, `record_id`, `new_values` / `old_values` (new_data değil),
+  `action`. `background_jobs` tablosunda `updated_at` yok — trigger varsa drop et.
 
 ### Minimal API Endpoint Kuralları
 
