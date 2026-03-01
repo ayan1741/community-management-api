@@ -55,7 +55,15 @@ builder.Services.AddCors(options =>
     {
         var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
             ?? new[] { "http://localhost:5173" };
-        policy.WithOrigins(origins)
+        policy.SetIsOriginAllowed(origin =>
+              {
+                  // Sabit izinli origin'ler
+                  if (origins.Contains(origin)) return true;
+                  // Vercel preview URL'leri: https://community-management-web-sya3-*.vercel.app
+                  var uri = new Uri(origin);
+                  return uri.Host.EndsWith(".vercel.app", StringComparison.OrdinalIgnoreCase)
+                      && uri.Host.StartsWith("community-management-web-", StringComparison.OrdinalIgnoreCase);
+              })
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
