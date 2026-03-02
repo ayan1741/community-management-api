@@ -11,6 +11,7 @@ public interface IBlockRepository
     Task<Block> CreateAsync(Block block, CancellationToken ct = default);
     Task UpdateAsync(Block block, CancellationToken ct = default);
     Task SoftDeleteAsync(Guid blockId, CancellationToken ct = default);
+    Task<Block?> GetDefaultByOrgIdAsync(Guid orgId, CancellationToken ct = default);
 }
 
 public record BlockListItem(

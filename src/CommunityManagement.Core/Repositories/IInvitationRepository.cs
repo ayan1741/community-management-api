@@ -12,6 +12,9 @@ public interface IInvitationRepository
         Guid orgId, CodeStatus? status, Guid? unitId, int page, int pageSize, CancellationToken ct = default);
     Task UpdateStatusAsync(Guid invitationId, CodeStatus status, CancellationToken ct = default);
     Task<bool> HasActiveInvitationForUnitAsync(Guid unitId, CancellationToken ct = default);
+    Task<IReadOnlyList<Guid>> GetUnitsWithActiveInvitationAsync(IReadOnlyList<Guid> unitIds, CancellationToken ct = default);
+    Task<IReadOnlyList<Invitation>> CreateBulkAsync(IReadOnlyList<Invitation> invitations, CancellationToken ct = default);
+    Task RevokeBulkByUnitIdsAsync(IReadOnlyList<Guid> unitIds, CancellationToken ct = default);
 }
 
 public record InvitationListItem(

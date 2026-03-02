@@ -24,7 +24,7 @@ public class AccountDeletionCleanupService : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             var delay = CalculateDelayUntilNextRun();
-            await Task.Delay(delay, stoppingToken);
+            await Task.Delay(delay, stoppingToken).ContinueWith(_ => { });
 
             if (stoppingToken.IsCancellationRequested) break;
 

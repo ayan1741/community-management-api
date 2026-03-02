@@ -22,7 +22,8 @@ public class ProfileRepository : IProfileRepository
             FROM public.profiles
             WHERE id = @UserId AND deleted_at IS NULL
             """;
-        return await conn.QuerySingleOrDefaultAsync<UserProfile>(sql, new { UserId = userId });
+        var row = await conn.QuerySingleOrDefaultAsync<ProfileRow>(sql, new { UserId = userId });
+        return row is null ? null : MapProfile(row);
     }
 
     public async Task UpdateAsync(UserProfile profile, CancellationToken ct = default)
@@ -101,6 +102,7 @@ public class ProfileRepository : IProfileRepository
             SELECT
                 om.organization_id,
                 o.name AS organization_name,
+                o.org_type,
                 om.role,
                 om.status,
                 u.id AS unit_id,
@@ -119,9 +121,10 @@ public class ProfileRepository : IProfileRepository
             ORDER BY om.organization_id, u.unit_number
             """;
 
-        var profile = await conn.QuerySingleOrDefaultAsync<UserProfile>(profileSql, new { UserId = userId });
-        if (profile is null)
+        var profileRow = await conn.QuerySingleOrDefaultAsync<ProfileRow>(profileSql, new { UserId = userId });
+        if (profileRow is null)
             return new MyContextResult(new UserProfile { Id = userId }, Array.Empty<MembershipContext>());
+        var profile = MapProfile(profileRow);
 
         var rows = (await conn.QueryAsync<MembershipRow>(membershipSql, new { UserId = userId })).ToList();
 
@@ -142,6 +145,7 @@ public class ProfileRepository : IProfileRepository
                 return new MembershipContext(
                     g.Key,
                     first.OrganizationName,
+                    first.OrgType,
                     first.Role,
                     first.Status,
                     units);
@@ -154,6 +158,7 @@ public class ProfileRepository : IProfileRepository
     private record MembershipRow(
         Guid OrganizationId,
         string OrganizationName,
+        string OrgType,
         string Role,
         string Status,
         Guid? UnitId,
@@ -161,4 +166,29 @@ public class ProfileRepository : IProfileRepository
         string? BlockName,
         string? ResidentType
     );
+
+    // Npgsql 9.x: timestamptz → DateTime (UTC), DateTimeOffset değil
+    // SQL: id, full_name, phone, avatar_url, kvkk_consent_at, deleted_at, created_at, updated_at (8 kolon)
+    private record ProfileRow(
+        Guid Id,
+        string FullName,
+        string? Phone,
+        string? AvatarUrl,
+        DateTime? KvkkConsentAt,
+        DateTime? DeletedAt,
+        DateTime CreatedAt,
+        DateTime UpdatedAt
+    );
+
+    private static UserProfile MapProfile(ProfileRow r) => new()
+    {
+        Id = r.Id,
+        FullName = r.FullName,
+        Phone = r.Phone,
+        AvatarUrl = r.AvatarUrl,
+        KvkkConsentAt = r.KvkkConsentAt.HasValue ? new DateTimeOffset(r.KvkkConsentAt.Value, TimeSpan.Zero) : null,
+        DeletedAt = r.DeletedAt.HasValue ? new DateTimeOffset(r.DeletedAt.Value, TimeSpan.Zero) : null,
+        CreatedAt = new DateTimeOffset(r.CreatedAt, TimeSpan.Zero),
+        UpdatedAt = new DateTimeOffset(r.UpdatedAt, TimeSpan.Zero),
+    };
 }

@@ -28,6 +28,7 @@ public static class AuthEndpoints
                 {
                     organizationId = m.OrganizationId,
                     organizationName = m.OrganizationName,
+                    orgType = m.OrgType,
                     role = m.Role,
                     status = m.Status,
                     units = m.Units.Select(u => new

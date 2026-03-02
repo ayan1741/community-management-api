@@ -6,7 +6,7 @@
 
 ```bash
 dotnet build                                     # Tüm solution
-dotnet run --project src/CommunityManagement.Api # API başlat (localhost:5000)
+dotnet run --project src/CommunityManagement.Api # API başlat (localhost:5100)
 dotnet test                                      # Testler
 ```
 
@@ -64,6 +64,10 @@ Doldurulacak alanlar: `DB_PASSWORD`, `ServiceRoleKey`, `JwtSecret`
   `QueryAsync` çağrılarını `Task.WhenAll` yerine sıralı `await` ile çalıştır.
 - **`System.Text.Json` case-sensitive**: `JsonSerializer.Serialize(new { camelKey = val })` üretir,
   Deserialize sınıfı `PascalKey` bekliyorsa null döner. Serialize'da PascalCase anonim nesne kullan.
+- **`ProfileRow` kolon sayısı**: Dapper positional record constructor'ı SQL'deki kolon sayısıyla EXACT eşleşmeli.
+  Fazla parametre → "no matching constructor" runtime 500. `ProfileRow` SQL'deki 8 kolonu içerir: `id, full_name, phone, avatar_url, kvkk_consent_at, deleted_at, created_at, updated_at`. `deletion_requested_at` bu query'de YOK.
+- **`BackgroundService` shutdown hatası**: `Task.Delay(delay, stoppingToken)` token iptal edilince `TaskCanceledException` fırlatır,
+  `BackgroundServiceExceptionBehavior=StopHost` ile host'u durdurur. Her `Task.Delay` çağrısına `.ContinueWith(_ => { })` ekle.
 - **SQL kolon adları**: Her yeni query yazılmadan önce migration SQL ile karşılaştır.
   `audit_logs` şeması: `actor_id`, `table_name`, `record_id`, `new_values` / `old_values` (new_data değil),
   `action`. `background_jobs` tablosunda `updated_at` yok — trigger varsa drop et.
@@ -79,7 +83,8 @@ Doldurulacak alanlar: `DB_PASSWORD`, `ServiceRoleKey`, `JwtSecret`
 
 - `dotnet run --no-build` — eski binary'yi çalıştırır, kod değişikliği yansımaz → **YanlIş**.
 - `dotnet run --project src/CommunityManagement.Api` — her seferinde yeniden derler → **Doğru**.
-- Port meşgulse: `Get-Process -Name dotnet | Stop-Process` ile önceki process'i öldür.
+- Port meşgulse: `taskkill /F /IM dotnet.exe` (bash'te: `cmd /c "taskkill /F /IM dotnet.exe"`) ile önceki process'i öldür.
+- **Windows port rezervasyonu**: Hyper-V/WSL bazı port aralıklarını rezerve eder. `netsh int ipv4 show excludedportrange protocol=tcp` ile kontrol et. API portu **5100** (rezerve aralığının dışında). `launchSettings.json` + `frontend/.env.local` senkron olmalı.
 
 ### Railway Ortam Değişkeni Kuralları
 
