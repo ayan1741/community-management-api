@@ -27,6 +27,7 @@ public class SubmitApplicationCommandHandler : IRequestHandler<SubmitApplication
     private readonly IInvitationRepository _invitations;
     private readonly IMemberRepository _members;
     private readonly IProfileRepository _profiles;
+    private readonly IUnitResidentRepository _unitResidents;
     private readonly ICurrentUserService _currentUser;
 
     public SubmitApplicationCommandHandler(
@@ -34,12 +35,14 @@ public class SubmitApplicationCommandHandler : IRequestHandler<SubmitApplication
         IInvitationRepository invitations,
         IMemberRepository members,
         IProfileRepository profiles,
+        IUnitResidentRepository unitResidents,
         ICurrentUserService currentUser)
     {
         _applications = applications;
         _invitations = invitations;
         _members = members;
         _profiles = profiles;
+        _unitResidents = unitResidents;
         _currentUser = currentUser;
     }
 
@@ -102,6 +105,19 @@ public class SubmitApplicationCommandHandler : IRequestHandler<SubmitApplication
             member.Status = MemberStatus.Active;
 
         await _members.UpsertAsync(member, ct);
+
+        // unit_residents kaydı oluştur (ON CONFLICT DO NOTHING ile idempotent)
+        var currentResidents = await _unitResidents.GetByUnitIdAsync(invitation.UnitId, ct);
+        await _unitResidents.CreateAsync(new UnitResident
+        {
+            Id = Guid.NewGuid(),
+            UnitId = invitation.UnitId,
+            UserId = userId,
+            OrganizationId = invitation.OrganizationId,
+            ResidentType = request.ResidentType,
+            IsPrimary = currentResidents.Count == 0,
+            Status = UnitResidentStatus.Active
+        }, ct);
 
         return new SubmitApplicationResult(application.Id, "approved", "Davet kabul edildi. Hoş geldiniz!");
     }

@@ -155,4 +155,29 @@ public class BlockRepository : IBlockRepository
             """;
         await conn.ExecuteAsync(sql, new { BlockId = blockId });
     }
+
+    public async Task<Block?> GetDefaultByOrgIdAsync(Guid orgId, CancellationToken ct = default)
+    {
+        using var conn = _factory.CreateUserConnection();
+        const string sql = """
+            SELECT id, organization_id, name, block_type, is_default, created_at, updated_at
+            FROM public.blocks
+            WHERE organization_id = @OrgId AND is_default = true AND deleted_at IS NULL
+            LIMIT 1
+            """;
+
+        var row = await conn.QuerySingleOrDefaultAsync<BlockDetailRow>(sql, new { OrgId = orgId });
+        if (row is null) return null;
+
+        return new Block
+        {
+            Id = row.Id,
+            OrganizationId = row.OrganizationId,
+            Name = row.Name,
+            BlockType = row.BlockType,
+            IsDefault = row.IsDefault,
+            CreatedAt = new DateTimeOffset(row.CreatedAt, TimeSpan.Zero),
+            UpdatedAt = new DateTimeOffset(row.UpdatedAt, TimeSpan.Zero)
+        };
+    }
 }

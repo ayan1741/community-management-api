@@ -13,15 +13,18 @@ public class ApproveApplicationCommandHandler : IRequestHandler<ApproveApplicati
 {
     private readonly IApplicationRepository _applications;
     private readonly IMemberRepository _members;
+    private readonly IUnitResidentRepository _unitResidents;
     private readonly ICurrentUserService _currentUser;
 
     public ApproveApplicationCommandHandler(
         IApplicationRepository applications,
         IMemberRepository members,
+        IUnitResidentRepository unitResidents,
         ICurrentUserService currentUser)
     {
         _applications = applications;
         _members = members;
+        _unitResidents = unitResidents;
         _currentUser = currentUser;
     }
 
@@ -63,5 +66,18 @@ public class ApproveApplicationCommandHandler : IRequestHandler<ApproveApplicati
             member.Status = MemberStatus.Active;
 
         await _members.UpsertAsync(member, ct);
+
+        // unit_residents kaydı oluştur (ON CONFLICT DO NOTHING ile idempotent)
+        var currentResidents = await _unitResidents.GetByUnitIdAsync(application.UnitId, ct);
+        await _unitResidents.CreateAsync(new UnitResident
+        {
+            Id = Guid.NewGuid(),
+            UnitId = application.UnitId,
+            UserId = application.ApplicantUserId,
+            OrganizationId = application.OrganizationId,
+            ResidentType = application.ApplicantResidentType,
+            IsPrimary = currentResidents.Count == 0,
+            Status = UnitResidentStatus.Active
+        }, ct);
     }
 }

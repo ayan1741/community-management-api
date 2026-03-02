@@ -52,8 +52,18 @@ public static class InvitationEndpoints
             return Results.Ok(new { message = "Davet kodu iptal edildi." });
         });
 
+        group.MapPost("/bulk", async (
+            Guid orgId,
+            [FromBody] BulkCreateInvitationRequest req,
+            IMediator mediator) =>
+        {
+            var result = await mediator.Send(new BulkCreateInvitationCodesCommand(orgId, req.UnitIds));
+            return Results.Created($"/api/v1/organizations/{orgId}/invitations", result);
+        });
+
         return app;
     }
 
     public record CreateInvitationRequest(Guid UnitId, int ExpiresInDays = 7);
+    public record BulkCreateInvitationRequest(IReadOnlyList<Guid> UnitIds);
 }

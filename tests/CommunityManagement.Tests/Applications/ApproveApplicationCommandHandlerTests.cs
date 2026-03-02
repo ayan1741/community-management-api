@@ -13,12 +13,13 @@ public class ApproveApplicationCommandHandlerTests
 {
     private readonly IApplicationRepository _applications = Substitute.For<IApplicationRepository>();
     private readonly IMemberRepository _members = Substitute.For<IMemberRepository>();
+    private readonly IUnitResidentRepository _unitResidents = Substitute.For<IUnitResidentRepository>();
     private readonly ICurrentUserService _currentUser = Substitute.For<ICurrentUserService>();
     private readonly ApproveApplicationCommandHandler _sut;
 
     public ApproveApplicationCommandHandlerTests()
     {
-        _sut = new ApproveApplicationCommandHandler(_applications, _members, _currentUser);
+        _sut = new ApproveApplicationCommandHandler(_applications, _members, _unitResidents, _currentUser);
     }
 
     [Fact]

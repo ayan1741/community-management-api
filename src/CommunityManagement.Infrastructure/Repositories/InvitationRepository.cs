@@ -130,6 +130,56 @@ public class InvitationRepository : IInvitationRepository
         return await conn.QuerySingleAsync<bool>(sql, new { UnitId = unitId });
     }
 
+    public async Task<IReadOnlyList<Guid>> GetUnitsWithActiveInvitationAsync(IReadOnlyList<Guid> unitIds, CancellationToken ct = default)
+    {
+        using var conn = _factory.CreateUserConnection();
+        const string sql = """
+            SELECT DISTINCT unit_id FROM public.invitation_codes
+            WHERE unit_id = ANY(@UnitIds) AND code_status = 'active' AND expires_at > now()
+            """;
+        return (await conn.QueryAsync<Guid>(sql, new { UnitIds = unitIds.ToArray() })).ToList();
+    }
+
+    public async Task RevokeBulkByUnitIdsAsync(IReadOnlyList<Guid> unitIds, CancellationToken ct = default)
+    {
+        using var conn = _factory.CreateServiceRoleConnection();
+        const string sql = """
+            UPDATE public.invitation_codes
+            SET code_status = 'revoked', updated_at = now()
+            WHERE unit_id = ANY(@UnitIds) AND code_status = 'active'
+            """;
+        await conn.ExecuteAsync(sql, new { UnitIds = unitIds.ToArray() });
+    }
+
+    public async Task<IReadOnlyList<Invitation>> CreateBulkAsync(IReadOnlyList<Invitation> invitations, CancellationToken ct = default)
+    {
+        using var conn = _factory.CreateServiceRoleConnection();
+        const string sql = """
+            INSERT INTO public.invitation_codes (id, organization_id, unit_id, invitation_code, code_status, created_by, expires_at, created_at, updated_at)
+            VALUES (@Id, @OrganizationId, @UnitId, @InvitationCode, @CodeStatus, @CreatedBy, @ExpiresAt, @CreatedAt, @UpdatedAt)
+            RETURNING *
+            """;
+
+        var results = new List<Invitation>();
+        foreach (var invitation in invitations)
+        {
+            var result = await conn.QuerySingleAsync<Invitation>(sql, new
+            {
+                invitation.Id,
+                invitation.OrganizationId,
+                invitation.UnitId,
+                invitation.InvitationCode,
+                CodeStatus = invitation.CodeStatus.ToString().ToLower(),
+                invitation.CreatedBy,
+                invitation.ExpiresAt,
+                invitation.CreatedAt,
+                invitation.UpdatedAt
+            });
+            results.Add(result);
+        }
+        return results;
+    }
+
     private record InvitationRow(
         Guid InvitationId,
         string InvitationCode,

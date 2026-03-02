@@ -4,5 +4,6 @@ public enum ResidentType
 {
     Owner,
     Tenant,
+    Resident,
     Unspecified
 }

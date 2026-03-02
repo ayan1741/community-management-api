@@ -19,6 +19,15 @@ public static class OrganizationEndpoints
             return Results.Created($"/api/v1/organizations/{result.OrganizationId}", result);
         });
 
+        group.MapPut("/{orgId:guid}", async (
+            Guid orgId,
+            [FromBody] UpdateOrganizationRequest req,
+            IMediator mediator) =>
+        {
+            await mediator.Send(new UpdateOrganizationCommand(orgId, req.Name, req.ContactPhone));
+            return Results.NoContent();
+        });
+
         return app;
     }
 
@@ -27,6 +36,11 @@ public static class OrganizationEndpoints
         string OrgType,
         string? AddressDistrict,
         string? AddressCity,
+        string? ContactPhone
+    );
+
+    public record UpdateOrganizationRequest(
+        string Name,
         string? ContactPhone
     );
 }

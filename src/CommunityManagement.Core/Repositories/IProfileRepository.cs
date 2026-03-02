@@ -21,6 +21,7 @@ public record MyContextResult(
 public record MembershipContext(
     Guid OrganizationId,
     string OrganizationName,
+    string OrgType,
     string Role,
     string Status,
     IReadOnlyList<UnitContext> Units

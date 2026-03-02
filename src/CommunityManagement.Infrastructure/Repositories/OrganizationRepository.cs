@@ -48,4 +48,20 @@ public class OrganizationRepository : IOrganizationRepository
             """;
         return await conn.QuerySingleAsync<bool>(sql, new { UserId = userId, Name = name });
     }
+
+    public async Task UpdateAsync(Organization organization, CancellationToken ct = default)
+    {
+        using var conn = _factory.CreateServiceRoleConnection();
+        const string sql = """
+            UPDATE public.organizations
+            SET name = @Name, contact_phone = @ContactPhone, updated_at = now()
+            WHERE id = @Id
+            """;
+        await conn.ExecuteAsync(sql, new
+        {
+            organization.Id,
+            organization.Name,
+            organization.ContactPhone
+        });
+    }
 }

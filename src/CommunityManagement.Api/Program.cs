@@ -54,7 +54,7 @@ builder.Services.AddCors(options =>
     options.AddDefaultPolicy(policy =>
     {
         var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-            ?? new[] { "http://localhost:5173" };
+            ?? new[] { "http://localhost:5100" };
         policy.SetIsOriginAllowed(origin =>
               {
                   // Sabit izinli origin'ler
@@ -94,5 +94,6 @@ app.MapAccrualEndpoints();
 app.MapPaymentEndpoints();
 app.MapLateFeeEndpoints();
 app.MapDuesSummaryEndpoints();
+app.MapUnitResidentEndpoints();
 
 app.Run();
