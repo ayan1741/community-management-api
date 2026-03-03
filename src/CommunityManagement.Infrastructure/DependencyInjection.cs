@@ -7,6 +7,7 @@ using CommunityManagement.Infrastructure.Services;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace CommunityManagement.Infrastructure;
@@ -59,6 +60,17 @@ public static class DependencyInjection
             client.BaseAddress = new Uri(supabaseUrl.TrimEnd('/') + "/");
             client.DefaultRequestHeaders.Add("apikey", serviceRoleKey);
             client.DefaultRequestHeaders.Add("Authorization", $"Bearer {serviceRoleKey}");
+        });
+
+        // Email
+        services.Configure<EmailOptions>(configuration.GetSection("Email"));
+
+        var emailApiKey = configuration["Email:ApiKey"] ?? "";
+        services.AddHttpClient<IEmailService, ResendEmailService>(client =>
+        {
+            client.BaseAddress = new Uri("https://api.resend.com/");
+            if (!string.IsNullOrEmpty(emailApiKey))
+                client.DefaultRequestHeaders.Add("Authorization", $"Bearer {emailApiKey}");
         });
 
         // Background services

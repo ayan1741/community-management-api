@@ -5,6 +5,7 @@ using CommunityManagement.Core.Repositories;
 using CommunityManagement.Core.Services;
 using Dapper;
 using MediatR;
+using System.Text.Json;
 
 namespace CommunityManagement.Application.Dues.Commands;
 
@@ -72,6 +73,21 @@ public class SoftDeletePaymentCommandHandler : IRequestHandler<SoftDeletePayment
             await conn.ExecuteAsync(
                 "UPDATE public.unit_dues SET status = @Status, updated_at = now() WHERE id = @Id",
                 new { Status = newStatus, Id = payment.UnitDueId }, tx);
+
+            // d. Email bildirimi için background job oluştur
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO public.background_jobs (job_type, payload, status)
+                VALUES ('payment_cancel_email', @Payload::jsonb, 'queued')
+                """,
+                new
+                {
+                    Payload = JsonSerializer.Serialize(new
+                    {
+                        paymentId = request.PaymentId,
+                        unitDueId = payment.UnitDueId
+                    })
+                }, tx);
 
             await tx.CommitAsync(ct);
         }
