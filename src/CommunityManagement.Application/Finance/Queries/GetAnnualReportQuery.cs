@@ -6,7 +6,8 @@ using MediatR;
 namespace CommunityManagement.Application.Finance.Queries;
 
 public record GetAnnualReportQuery(
-    Guid OrgId, int Year
+    Guid OrgId, int Year,
+    string ReportBasis = "period"
 ) : IRequest<AnnualReportResult>;
 
 public record AnnualReportResult(
@@ -37,8 +38,13 @@ public class GetAnnualReportQueryHandler : IRequestHandler<GetAnnualReportQuery,
     {
         await _currentUser.RequireRoleAsync(request.OrgId, MemberRole.BoardMember, ct);
 
-        var financeTotals = await _records.GetAnnualTotalsAsync(request.OrgId, request.Year, ct);
-        var duesCollected = await _records.GetAnnualDuesCollectedAsync(request.OrgId, request.Year, ct);
+        if (request.ReportBasis is not ("period" or "cash"))
+            throw Application.Common.AppException.UnprocessableEntity("reportBasis 'period' veya 'cash' olmalıdır.");
+
+        var basis = request.ReportBasis;
+
+        var financeTotals = await _records.GetAnnualTotalsAsync(request.OrgId, request.Year, basis, ct);
+        var duesCollected = await _records.GetAnnualDuesCollectedAsync(request.OrgId, request.Year, basis, ct);
 
         // 12 aylık tablo oluştur
         var financeByMonth = financeTotals.ToDictionary(t => t.Month);

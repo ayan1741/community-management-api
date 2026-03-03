@@ -18,18 +18,20 @@ public static class FinanceRecordEndpoints
             [FromQuery] Guid? categoryId = null,
             [FromQuery] DateOnly? startDate = null,
             [FromQuery] DateOnly? endDate = null,
+            [FromQuery] int? periodYear = null,
+            [FromQuery] int? periodMonth = null,
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20) =>
         {
             var result = await mediator.Send(new GetFinanceRecordsQuery(
-                orgId, type, categoryId, startDate, endDate, page, pageSize));
+                orgId, type, categoryId, startDate, endDate, periodYear, periodMonth, page, pageSize));
             return Results.Ok(result);
         });
 
         group.MapPost("/", async (Guid orgId, [FromBody] CreateRecordRequest req, IMediator mediator) =>
         {
             var result = await mediator.Send(new CreateFinanceRecordCommand(
-                orgId, req.CategoryId, req.Type, req.Amount, req.RecordDate, req.Description, req.PaymentMethod));
+                orgId, req.CategoryId, req.Type, req.Amount, req.RecordDate, req.Description, req.PaymentMethod, req.PeriodYear, req.PeriodMonth));
             return Results.Created($"/api/v1/organizations/{orgId}/finance/records/{result.Id}", result);
         });
 
@@ -37,7 +39,7 @@ public static class FinanceRecordEndpoints
             [FromBody] UpdateRecordRequest req, IMediator mediator) =>
         {
             var result = await mediator.Send(new UpdateFinanceRecordCommand(
-                orgId, recordId, req.CategoryId, req.Amount, req.RecordDate, req.Description, req.PaymentMethod));
+                orgId, recordId, req.CategoryId, req.Amount, req.RecordDate, req.Description, req.PaymentMethod, req.PeriodYear, req.PeriodMonth));
             return Results.Ok(result);
         });
 
@@ -64,6 +66,6 @@ public static class FinanceRecordEndpoints
         return app;
     }
 
-    public record CreateRecordRequest(Guid CategoryId, string Type, decimal Amount, DateOnly RecordDate, string Description, string? PaymentMethod);
-    public record UpdateRecordRequest(Guid CategoryId, decimal Amount, DateOnly RecordDate, string Description, string? PaymentMethod);
+    public record CreateRecordRequest(Guid CategoryId, string Type, decimal Amount, DateOnly RecordDate, string Description, string? PaymentMethod, int? PeriodYear, int? PeriodMonth);
+    public record UpdateRecordRequest(Guid CategoryId, decimal Amount, DateOnly RecordDate, string Description, string? PaymentMethod, int? PeriodYear, int? PeriodMonth);
 }

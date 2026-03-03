@@ -13,7 +13,8 @@ namespace CommunityManagement.Application.Finance.Commands;
 public record CreateFinanceRecordCommand(
     Guid OrgId, Guid CategoryId, string Type,
     decimal Amount, DateOnly RecordDate, string Description,
-    string? PaymentMethod
+    string? PaymentMethod,
+    int? PeriodYear, int? PeriodMonth
 ) : IRequest<FinanceRecord>;
 
 public class CreateFinanceRecordCommandHandler : IRequestHandler<CreateFinanceRecordCommand, FinanceRecord>
@@ -70,6 +71,19 @@ public class CreateFinanceRecordCommandHandler : IRequestHandler<CreateFinanceRe
         if (request.Type == "expense" && string.IsNullOrWhiteSpace(request.PaymentMethod))
             throw AppException.UnprocessableEntity("Gider kaydı için ödeme yöntemi zorunludur.");
 
+        // Dönem varsayılanı: record_date'in yıl/ayı
+        var periodYear = request.PeriodYear ?? request.RecordDate.Year;
+        var periodMonth = request.PeriodMonth ?? request.RecordDate.Month;
+
+        // Dönem validasyonu: son 24 ay + gelecek 1 ay
+        var now2 = DateTime.UtcNow;
+        var minPeriod = new DateOnly(now2.Year, now2.Month, 1).AddMonths(-24);
+        var maxPeriod = new DateOnly(now2.Year, now2.Month, 1).AddMonths(1);
+        var requestedPeriod = new DateOnly(periodYear, periodMonth, 1);
+
+        if (requestedPeriod < minPeriod || requestedPeriod > maxPeriod)
+            throw AppException.UnprocessableEntity("Dönem son 24 ay ile gelecek 1 ay arasında olmalıdır.");
+
         var currentUserId = _currentUser.UserId;
         var now = DateTimeOffset.UtcNow;
 
@@ -81,6 +95,8 @@ public class CreateFinanceRecordCommandHandler : IRequestHandler<CreateFinanceRe
             Type = request.Type,
             Amount = request.Amount,
             RecordDate = request.RecordDate,
+            PeriodYear = periodYear,
+            PeriodMonth = periodMonth,
             Description = request.Description.Trim(),
             PaymentMethod = request.PaymentMethod,
             IsOpeningBalance = false,
@@ -99,9 +115,11 @@ public class CreateFinanceRecordCommandHandler : IRequestHandler<CreateFinanceRe
                 """
                 INSERT INTO public.finance_records
                     (id, organization_id, category_id, type, amount, record_date, description,
+                     period_year, period_month,
                      payment_method, is_opening_balance, created_by, created_at, updated_at)
                 VALUES
                     (@Id, @OrganizationId, @CategoryId, @Type, @Amount, @RecordDate, @Description,
+                     @PeriodYear, @PeriodMonth,
                      @PaymentMethod, @IsOpeningBalance, @CreatedBy, @CreatedAt, @UpdatedAt)
                 """,
                 new
@@ -113,6 +131,8 @@ public class CreateFinanceRecordCommandHandler : IRequestHandler<CreateFinanceRe
                     record.Amount,
                     RecordDate = record.RecordDate.ToDateTime(TimeOnly.MinValue),
                     record.Description,
+                    record.PeriodYear,
+                    record.PeriodMonth,
                     record.PaymentMethod,
                     record.IsOpeningBalance,
                     record.CreatedBy,
@@ -129,7 +149,7 @@ public class CreateFinanceRecordCommandHandler : IRequestHandler<CreateFinanceRe
                 {
                     RecordId = record.Id,
                     ActorId = currentUserId,
-                    NewValues = JsonSerializer.Serialize(new { record.Type, record.Amount, record.Description, record.CategoryId })
+                    NewValues = JsonSerializer.Serialize(new { record.Type, record.Amount, record.Description, record.CategoryId, record.PeriodYear, record.PeriodMonth })
                 }, tx);
 
             await tx.CommitAsync(ct);

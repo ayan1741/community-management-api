@@ -6,7 +6,8 @@ using MediatR;
 namespace CommunityManagement.Application.Finance.Queries;
 
 public record GetMonthlyReportQuery(
-    Guid OrgId, int Year, int Month
+    Guid OrgId, int Year, int Month,
+    string ReportBasis = "period"
 ) : IRequest<MonthlyReportResult>;
 
 public record MonthlyReportResult(
@@ -39,16 +40,21 @@ public class GetMonthlyReportQueryHandler : IRequestHandler<GetMonthlyReportQuer
     {
         await _currentUser.RequireRoleAsync(request.OrgId, MemberRole.BoardMember, ct);
 
+        if (request.ReportBasis is not ("period" or "cash"))
+            throw Application.Common.AppException.UnprocessableEntity("reportBasis 'period' veya 'cash' olmalıdır.");
+
+        var basis = request.ReportBasis;
+
         // Sıralı sorgular (Npgsql aynı connection'da paralel query desteklemez)
-        var totals = await _records.GetMonthlyTotalsAsync(request.OrgId, request.Year, request.Month, ct);
-        var duesCollected = await _records.GetDuesCollectedAsync(request.OrgId, request.Year, request.Month, ct);
-        var expenseBreakdown = await _records.GetCategoryBreakdownAsync(request.OrgId, "expense", request.Year, request.Month, ct);
-        var incomeBreakdown = await _records.GetCategoryBreakdownAsync(request.OrgId, "income", request.Year, request.Month, ct);
+        var totals = await _records.GetMonthlyTotalsAsync(request.OrgId, request.Year, request.Month, basis, ct);
+        var duesCollected = await _records.GetDuesCollectedAsync(request.OrgId, request.Year, request.Month, basis, ct);
+        var expenseBreakdown = await _records.GetCategoryBreakdownAsync(request.OrgId, "expense", request.Year, request.Month, basis, ct);
+        var incomeBreakdown = await _records.GetCategoryBreakdownAsync(request.OrgId, "income", request.Year, request.Month, basis, ct);
 
         // Önceki ay gider (değişim hesabı)
         var prevMonth = request.Month == 1 ? 12 : request.Month - 1;
         var prevYear = request.Month == 1 ? request.Year - 1 : request.Year;
-        var prevTotals = await _records.GetMonthlyTotalsAsync(request.OrgId, prevYear, prevMonth, ct);
+        var prevTotals = await _records.GetMonthlyTotalsAsync(request.OrgId, prevYear, prevMonth, basis, ct);
 
         decimal? previousMonthExpense = prevTotals.TotalExpense > 0 ? prevTotals.TotalExpense : null;
         decimal? changePercent = null;
@@ -57,7 +63,7 @@ public class GetMonthlyReportQueryHandler : IRequestHandler<GetMonthlyReportQuer
 
         // Son 10 kayıt
         var (recentRecords, _) = await _records.GetByOrgIdAsync(
-            request.OrgId, null, null, null, null, 1, 10, ct);
+            request.OrgId, null, null, null, null, null, null, 1, 10, ct);
 
         var totalIncome = duesCollected + totals.TotalIncome;
         var netBalance = totalIncome - totals.TotalExpense;

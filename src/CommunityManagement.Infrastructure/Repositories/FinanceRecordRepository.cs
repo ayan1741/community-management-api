@@ -19,6 +19,7 @@ public class FinanceRecordRepository : IFinanceRecordRepository
     private record RecordRow(
         Guid Id, Guid OrganizationId, Guid CategoryId, string Type,
         decimal Amount, DateTime RecordDate, string Description,
+        int PeriodYear, int PeriodMonth,
         string? PaymentMethod, string? DocumentUrl, bool IsOpeningBalance,
         Guid CreatedBy, Guid? UpdatedBy, DateTime? DeletedAt, Guid? DeletedBy,
         DateTime CreatedAt, DateTime UpdatedAt
@@ -27,6 +28,7 @@ public class FinanceRecordRepository : IFinanceRecordRepository
     private record RecordListRow(
         Guid Id, Guid CategoryId, string CategoryName, string? CategoryIcon,
         string Type, decimal Amount, DateTime RecordDate,
+        int PeriodYear, int PeriodMonth,
         string Description, string? PaymentMethod, string? DocumentUrl,
         bool IsOpeningBalance, string CreatedByName,
         DateTime CreatedAt, long TotalCount
@@ -44,6 +46,38 @@ public class FinanceRecordRepository : IFinanceRecordRepository
     private record TrendRow(int Year, int Month, decimal Amount);
     private record MonthDecimalRow(int Month, decimal Amount);
 
+    // --- reportBasis Filter Helpers ---
+
+    private static string FinanceRecordPeriodFilter(string reportBasis)
+        => reportBasis == "period"
+            ? "fr.period_year = @Year AND fr.period_month = @Month"
+            : "EXTRACT(YEAR FROM fr.record_date) = @Year AND EXTRACT(MONTH FROM fr.record_date) = @Month";
+
+    private static string FinanceRecordAnnualFilter(string reportBasis)
+        => reportBasis == "period"
+            ? "fr.period_year = @Year"
+            : "EXTRACT(YEAR FROM fr.record_date) = @Year";
+
+    private static string FinanceRecordAnnualGroupBy(string reportBasis)
+        => reportBasis == "period"
+            ? "fr.period_month"
+            : "EXTRACT(MONTH FROM fr.record_date)";
+
+    private static string DuesCollectedPeriodFilter(string reportBasis)
+        => reportBasis == "period"
+            ? "EXTRACT(YEAR FROM dp.start_date) = @Year AND EXTRACT(MONTH FROM dp.start_date) = @Month"
+            : "p.paid_at >= make_date(@Year, @Month, 1)::timestamptz AND p.paid_at < (make_date(@Year, @Month, 1) + interval '1 month')::timestamptz";
+
+    private static string DuesCollectedAnnualFilter(string reportBasis)
+        => reportBasis == "period"
+            ? "EXTRACT(YEAR FROM dp.start_date) = @Year"
+            : "p.paid_at >= make_date(@Year, 1, 1)::timestamptz AND p.paid_at < make_date(@Year + 1, 1, 1)::timestamptz";
+
+    private static string DuesCollectedAnnualGroupBy(string reportBasis)
+        => reportBasis == "period"
+            ? "EXTRACT(MONTH FROM dp.start_date)"
+            : "EXTRACT(MONTH FROM p.paid_at)";
+
     // --- Public Methods ---
 
     public async Task<FinanceRecord?> GetByIdAsync(Guid id, CancellationToken ct = default)
@@ -51,6 +85,7 @@ public class FinanceRecordRepository : IFinanceRecordRepository
         using var conn = _factory.CreateServiceRoleConnection();
         const string sql = """
             SELECT id, organization_id, category_id, type, amount, record_date, description,
+                   period_year, period_month,
                    payment_method, document_url, is_opening_balance,
                    created_by, updated_by, deleted_at, deleted_by, created_at, updated_at
             FROM public.finance_records
@@ -63,6 +98,7 @@ public class FinanceRecordRepository : IFinanceRecordRepository
     public async Task<(IReadOnlyList<FinanceRecordListItem> Items, int TotalCount)> GetByOrgIdAsync(
         Guid orgId, string? type, Guid? categoryId,
         DateOnly? startDate, DateOnly? endDate,
+        int? periodYear, int? periodMonth,
         int page, int pageSize, CancellationToken ct = default)
     {
         using var conn = _factory.CreateUserConnection();
@@ -71,11 +107,15 @@ public class FinanceRecordRepository : IFinanceRecordRepository
         var categoryFilter = categoryId.HasValue ? "AND fr.category_id = @CategoryId" : "";
         var startFilter = startDate.HasValue ? "AND fr.record_date >= @StartDate" : "";
         var endFilter = endDate.HasValue ? "AND fr.record_date <= @EndDate" : "";
+        var periodYearFilter = periodYear.HasValue ? "AND fr.period_year = @PeriodYear" : "";
+        var periodMonthFilter = periodMonth.HasValue ? "AND fr.period_month = @PeriodMonth" : "";
 
         var sql = $"""
             SELECT
               fr.id, fr.category_id, fc.name AS category_name, fc.icon AS category_icon,
-              fr.type, fr.amount, fr.record_date, fr.description,
+              fr.type, fr.amount, fr.record_date,
+              fr.period_year, fr.period_month,
+              fr.description,
               fr.payment_method, fr.document_url, fr.is_opening_balance,
               p.full_name AS created_by_name,
               fr.created_at,
@@ -89,6 +129,8 @@ public class FinanceRecordRepository : IFinanceRecordRepository
               {categoryFilter}
               {startFilter}
               {endFilter}
+              {periodYearFilter}
+              {periodMonthFilter}
             ORDER BY fr.record_date DESC, fr.created_at DESC
             LIMIT @PageSize OFFSET @Offset
             """;
@@ -100,6 +142,8 @@ public class FinanceRecordRepository : IFinanceRecordRepository
             CategoryId = categoryId,
             StartDate = startDate?.ToDateTime(TimeOnly.MinValue),
             EndDate = endDate?.ToDateTime(TimeOnly.MinValue),
+            PeriodYear = periodYear,
+            PeriodMonth = periodMonth,
             PageSize = pageSize,
             Offset = (page - 1) * pageSize
         })).ToList();
@@ -111,6 +155,7 @@ public class FinanceRecordRepository : IFinanceRecordRepository
         var items = rows.Select(r => new FinanceRecordListItem(
             r.Id, r.CategoryId, r.CategoryName, r.CategoryIcon,
             r.Type, r.Amount, DateOnly.FromDateTime(r.RecordDate),
+            r.PeriodYear, r.PeriodMonth,
             r.Description, r.PaymentMethod, r.DocumentUrl,
             r.IsOpeningBalance, r.CreatedByName,
             new DateTimeOffset(r.CreatedAt, TimeSpan.Zero),
@@ -120,37 +165,42 @@ public class FinanceRecordRepository : IFinanceRecordRepository
         return (items, totalCount);
     }
 
-    public async Task<MonthlyFinanceTotals> GetMonthlyTotalsAsync(Guid orgId, int year, int month, CancellationToken ct = default)
+    public async Task<MonthlyFinanceTotals> GetMonthlyTotalsAsync(
+        Guid orgId, int year, int month, string reportBasis, CancellationToken ct = default)
     {
         using var conn = _factory.CreateUserConnection();
-        const string sql = """
+        var filter = FinanceRecordPeriodFilter(reportBasis);
+        var sql = $"""
             SELECT
               COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS total_income,
               COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS total_expense
-            FROM public.finance_records
-            WHERE organization_id = @OrgId
-              AND deleted_at IS NULL
-              AND EXTRACT(YEAR FROM record_date) = @Year
-              AND EXTRACT(MONTH FROM record_date) = @Month
+            FROM public.finance_records fr
+            WHERE fr.organization_id = @OrgId
+              AND fr.deleted_at IS NULL
+              AND {filter}
             """;
 
         var row = await conn.QuerySingleAsync<TotalsRow>(sql, new { OrgId = orgId, Year = year, Month = month });
         return new MonthlyFinanceTotals(year, month, row.TotalIncome, row.TotalExpense, row.TotalIncome - row.TotalExpense);
     }
 
-    public async Task<IReadOnlyList<MonthlyFinanceTotals>> GetAnnualTotalsAsync(Guid orgId, int year, CancellationToken ct = default)
+    public async Task<IReadOnlyList<MonthlyFinanceTotals>> GetAnnualTotalsAsync(
+        Guid orgId, int year, string reportBasis, CancellationToken ct = default)
     {
         using var conn = _factory.CreateUserConnection();
-        const string sql = """
+        var annualFilter = FinanceRecordAnnualFilter(reportBasis);
+        var groupBy = FinanceRecordAnnualGroupBy(reportBasis);
+        var monthCol = reportBasis == "period" ? "fr.period_month" : "EXTRACT(MONTH FROM fr.record_date)::int";
+        var sql = $"""
             SELECT
-              EXTRACT(MONTH FROM record_date)::int AS month,
+              {monthCol} AS month,
               COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS total_income,
               COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS total_expense
-            FROM public.finance_records
-            WHERE organization_id = @OrgId
-              AND deleted_at IS NULL
-              AND EXTRACT(YEAR FROM record_date) = @Year
-            GROUP BY EXTRACT(MONTH FROM record_date)
+            FROM public.finance_records fr
+            WHERE fr.organization_id = @OrgId
+              AND fr.deleted_at IS NULL
+              AND {annualFilter}
+            GROUP BY {groupBy}
             ORDER BY month
             """;
 
@@ -160,10 +210,12 @@ public class FinanceRecordRepository : IFinanceRecordRepository
         )).ToList();
     }
 
-    public async Task<IReadOnlyList<CategoryBreakdownItem>> GetCategoryBreakdownAsync(Guid orgId, string type, int year, int month, CancellationToken ct = default)
+    public async Task<IReadOnlyList<CategoryBreakdownItem>> GetCategoryBreakdownAsync(
+        Guid orgId, string type, int year, int month, string reportBasis, CancellationToken ct = default)
     {
         using var conn = _factory.CreateUserConnection();
-        const string sql = """
+        var filter = FinanceRecordPeriodFilter(reportBasis);
+        var sql = $"""
             SELECT
               fc.id AS category_id,
               fc.name AS category_name,
@@ -176,8 +228,7 @@ public class FinanceRecordRepository : IFinanceRecordRepository
             WHERE fr.organization_id = @OrgId
               AND fr.deleted_at IS NULL
               AND fr.type = @Type
-              AND EXTRACT(YEAR FROM fr.record_date) = @Year
-              AND EXTRACT(MONTH FROM fr.record_date) = @Month
+              AND {filter}
             GROUP BY fc.id, fc.name, fc.icon, parent.name
             ORDER BY SUM(fr.amount) DESC
             """;
@@ -192,25 +243,43 @@ public class FinanceRecordRepository : IFinanceRecordRepository
         )).ToList();
     }
 
-    public async Task<IReadOnlyList<MonthAmountItem>> GetExpenseTrendAsync(Guid orgId, int months, CancellationToken ct = default)
+    public async Task<IReadOnlyList<MonthAmountItem>> GetExpenseTrendAsync(
+        Guid orgId, int months, string reportBasis, CancellationToken ct = default)
     {
         using var conn = _factory.CreateUserConnection();
-        const string sql = """
-            SELECT
-              EXTRACT(YEAR FROM record_date)::int AS year,
-              EXTRACT(MONTH FROM record_date)::int AS month,
-              COALESCE(SUM(amount), 0) AS amount
-            FROM public.finance_records
-            WHERE organization_id = @OrgId
-              AND deleted_at IS NULL
-              AND type = 'expense'
-              AND record_date >= (CURRENT_DATE - make_interval(months => @Months))
-            GROUP BY EXTRACT(YEAR FROM record_date), EXTRACT(MONTH FROM record_date)
-            ORDER BY year, month
-            """;
 
-        var rows = await conn.QueryAsync<TrendRow>(sql, new { OrgId = orgId, Months = months });
-        return rows.Select(r => new MonthAmountItem(r.Year, r.Month, r.Amount)).ToList();
+        if (reportBasis == "period")
+        {
+            var now = DateTime.UtcNow;
+            var startYear = now.AddMonths(-months).Year;
+            var startMonth = now.AddMonths(-months).Month;
+            var sql = """
+                SELECT fr.period_year AS year, fr.period_month AS month, COALESCE(SUM(fr.amount), 0) AS amount
+                FROM public.finance_records fr
+                WHERE fr.organization_id = @OrgId
+                  AND fr.deleted_at IS NULL
+                  AND fr.type = 'expense'
+                  AND (fr.period_year > @StartYear OR (fr.period_year = @StartYear AND fr.period_month >= @StartMonth))
+                GROUP BY fr.period_year, fr.period_month
+                ORDER BY fr.period_year, fr.period_month
+                """;
+            var rows = await conn.QueryAsync<TrendRow>(sql, new { OrgId = orgId, StartYear = startYear, StartMonth = startMonth });
+            return rows.Select(r => new MonthAmountItem(r.Year, r.Month, r.Amount)).ToList();
+        }
+        else
+        {
+            var sql = """
+                SELECT EXTRACT(YEAR FROM record_date)::int AS year, EXTRACT(MONTH FROM record_date)::int AS month,
+                       COALESCE(SUM(amount), 0) AS amount
+                FROM public.finance_records
+                WHERE organization_id = @OrgId AND deleted_at IS NULL AND type = 'expense'
+                  AND record_date >= (CURRENT_DATE - make_interval(months => @Months))
+                GROUP BY EXTRACT(YEAR FROM record_date), EXTRACT(MONTH FROM record_date)
+                ORDER BY year, month
+                """;
+            var rows = await conn.QueryAsync<TrendRow>(sql, new { OrgId = orgId, Months = months });
+            return rows.Select(r => new MonthAmountItem(r.Year, r.Month, r.Amount)).ToList();
+        }
     }
 
     public async Task<FinanceRecord?> GetOpeningBalanceAsync(Guid orgId, CancellationToken ct = default)
@@ -218,6 +287,7 @@ public class FinanceRecordRepository : IFinanceRecordRepository
         using var conn = _factory.CreateServiceRoleConnection();
         const string sql = """
             SELECT id, organization_id, category_id, type, amount, record_date, description,
+                   period_year, period_month,
                    payment_method, document_url, is_opening_balance,
                    created_by, updated_by, deleted_at, deleted_by, created_at, updated_at
             FROM public.finance_records
@@ -243,43 +313,47 @@ public class FinanceRecordRepository : IFinanceRecordRepository
         return await conn.QuerySingleAsync<bool>(sql, new { OrgId = orgId });
     }
 
-    public async Task<decimal> GetDuesCollectedAsync(Guid orgId, int year, int month, CancellationToken ct = default)
+    public async Task<decimal> GetDuesCollectedAsync(
+        Guid orgId, int year, int month, string reportBasis, CancellationToken ct = default)
     {
         using var conn = _factory.CreateUserConnection();
-        const string sql = """
+        var filter = DuesCollectedPeriodFilter(reportBasis);
+        var sql = $"""
             SELECT COALESCE(SUM(p.amount), 0)
             FROM public.payments p
             JOIN public.unit_dues ud ON ud.id = p.unit_due_id
             JOIN public.dues_periods dp ON dp.id = ud.period_id
             WHERE dp.organization_id = @OrgId
               AND p.cancelled_at IS NULL
-              AND p.paid_at >= make_date(@Year, @Month, 1)::timestamptz
-              AND p.paid_at < (make_date(@Year, @Month, 1) + interval '1 month')::timestamptz
+              AND {filter}
             """;
         return await conn.QuerySingleAsync<decimal>(sql, new { OrgId = orgId, Year = year, Month = month });
     }
 
-    public async Task<IReadOnlyList<decimal>> GetAnnualDuesCollectedAsync(Guid orgId, int year, CancellationToken ct = default)
+    public async Task<IReadOnlyList<decimal>> GetAnnualDuesCollectedAsync(
+        Guid orgId, int year, string reportBasis, CancellationToken ct = default)
     {
         using var conn = _factory.CreateUserConnection();
-        const string sql = """
-            SELECT
-              EXTRACT(MONTH FROM p.paid_at)::int AS month,
-              COALESCE(SUM(p.amount), 0) AS amount
+        var filter = DuesCollectedAnnualFilter(reportBasis);
+        var groupBy = DuesCollectedAnnualGroupBy(reportBasis);
+        var monthCol = reportBasis == "period"
+            ? "EXTRACT(MONTH FROM dp.start_date)::int"
+            : "EXTRACT(MONTH FROM p.paid_at)::int";
+        var sql = $"""
+            SELECT {monthCol} AS month, COALESCE(SUM(p.amount), 0) AS amount
             FROM public.payments p
             JOIN public.unit_dues ud ON ud.id = p.unit_due_id
             JOIN public.dues_periods dp ON dp.id = ud.period_id
             WHERE dp.organization_id = @OrgId
               AND p.cancelled_at IS NULL
-              AND p.paid_at >= make_date(@Year, 1, 1)::timestamptz
-              AND p.paid_at < make_date(@Year + 1, 1, 1)::timestamptz
-            GROUP BY EXTRACT(MONTH FROM p.paid_at)
+              AND {filter}
+            GROUP BY {groupBy}
             ORDER BY month
             """;
 
         var rows = await conn.QueryAsync<MonthDecimalRow>(sql, new { OrgId = orgId, Year = year });
 
-        // 12 aylık dizi oluştur (0-indexed değil, 1-12 arası ay numarası)
+        // 12 aylik dizi olustur (0-indexed degil, 1-12 arasi ay numarasi)
         var result = new decimal[12];
         foreach (var r in rows)
             result[r.Month - 1] = r.Amount;
@@ -293,13 +367,16 @@ public class FinanceRecordRepository : IFinanceRecordRepository
         const string sql = """
             INSERT INTO public.finance_records
                 (id, organization_id, category_id, type, amount, record_date, description,
+                 period_year, period_month,
                  payment_method, document_url, is_opening_balance,
                  created_by, updated_by, deleted_at, deleted_by, created_at, updated_at)
             VALUES
                 (@Id, @OrganizationId, @CategoryId, @Type, @Amount, @RecordDate, @Description,
+                 @PeriodYear, @PeriodMonth,
                  @PaymentMethod, @DocumentUrl, @IsOpeningBalance,
                  @CreatedBy, @UpdatedBy, @DeletedAt, @DeletedBy, @CreatedAt, @UpdatedAt)
             RETURNING id, organization_id, category_id, type, amount, record_date, description,
+                      period_year, period_month,
                       payment_method, document_url, is_opening_balance,
                       created_by, updated_by, deleted_at, deleted_by, created_at, updated_at
             """;
@@ -312,6 +389,8 @@ public class FinanceRecordRepository : IFinanceRecordRepository
             record.Amount,
             RecordDate = record.RecordDate.ToDateTime(TimeOnly.MinValue),
             record.Description,
+            record.PeriodYear,
+            record.PeriodMonth,
             record.PaymentMethod,
             record.DocumentUrl,
             record.IsOpeningBalance,
@@ -332,6 +411,7 @@ public class FinanceRecordRepository : IFinanceRecordRepository
             UPDATE public.finance_records
             SET category_id = @CategoryId, amount = @Amount, record_date = @RecordDate,
                 description = @Description, payment_method = @PaymentMethod,
+                period_year = @PeriodYear, period_month = @PeriodMonth,
                 document_url = @DocumentUrl, updated_by = @UpdatedBy, updated_at = @UpdatedAt
             WHERE id = @Id
             """;
@@ -343,6 +423,8 @@ public class FinanceRecordRepository : IFinanceRecordRepository
             RecordDate = record.RecordDate.ToDateTime(TimeOnly.MinValue),
             record.Description,
             record.PaymentMethod,
+            record.PeriodYear,
+            record.PeriodMonth,
             record.DocumentUrl,
             record.UpdatedBy,
             UpdatedAt = record.UpdatedAt.UtcDateTime
@@ -368,6 +450,8 @@ public class FinanceRecordRepository : IFinanceRecordRepository
         Type = row.Type,
         Amount = row.Amount,
         RecordDate = DateOnly.FromDateTime(row.RecordDate),
+        PeriodYear = row.PeriodYear,
+        PeriodMonth = row.PeriodMonth,
         Description = row.Description,
         PaymentMethod = row.PaymentMethod,
         DocumentUrl = row.DocumentUrl,
