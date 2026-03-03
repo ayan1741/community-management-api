@@ -6,7 +6,8 @@ using MediatR;
 namespace CommunityManagement.Application.Finance.Queries;
 
 public record GetBudgetVsActualQuery(
-    Guid OrgId, int Year, int? Month
+    Guid OrgId, int Year, int? Month,
+    string ReportBasis = "period"
 ) : IRequest<BudgetVsActualResult>;
 
 public record BudgetVsActualResult(
@@ -39,6 +40,11 @@ public class GetBudgetVsActualQueryHandler : IRequestHandler<GetBudgetVsActualQu
     {
         await _currentUser.RequireRoleAsync(request.OrgId, MemberRole.Admin, ct);
 
+        if (request.ReportBasis is not ("period" or "cash"))
+            throw Application.Common.AppException.UnprocessableEntity("reportBasis 'period' veya 'cash' olmalıdır.");
+
+        var basis = request.ReportBasis;
+
         // Bütçe verileri
         var budgetItems = request.Month.HasValue
             ? await _budgets.GetByOrgMonthAsync(request.OrgId, request.Year, request.Month.Value, ct)
@@ -48,7 +54,7 @@ public class GetBudgetVsActualQueryHandler : IRequestHandler<GetBudgetVsActualQu
         IReadOnlyList<CategoryBreakdownItem> actuals;
         if (request.Month.HasValue)
         {
-            actuals = await _records.GetCategoryBreakdownAsync(request.OrgId, "expense", request.Year, request.Month.Value, ct);
+            actuals = await _records.GetCategoryBreakdownAsync(request.OrgId, "expense", request.Year, request.Month.Value, basis, ct);
         }
         else
         {
@@ -56,7 +62,7 @@ public class GetBudgetVsActualQueryHandler : IRequestHandler<GetBudgetVsActualQu
             var allMonths = new List<CategoryBreakdownItem>();
             for (int m = 1; m <= 12; m++)
             {
-                var monthActuals = await _records.GetCategoryBreakdownAsync(request.OrgId, "expense", request.Year, m, ct);
+                var monthActuals = await _records.GetCategoryBreakdownAsync(request.OrgId, "expense", request.Year, m, basis, ct);
                 allMonths.AddRange(monthActuals);
             }
             actuals = allMonths

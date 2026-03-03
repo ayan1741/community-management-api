@@ -60,6 +60,8 @@ public class CreateOpeningBalanceCommandHandler : IRequestHandler<CreateOpeningB
             Type = "income",
             Amount = request.Amount,
             RecordDate = request.RecordDate,
+            PeriodYear = request.RecordDate.Year,
+            PeriodMonth = request.RecordDate.Month,
             Description = request.Description?.Trim() ?? "Devir bakiyesi",
             IsOpeningBalance = true,
             CreatedBy = currentUserId,
@@ -77,9 +79,11 @@ public class CreateOpeningBalanceCommandHandler : IRequestHandler<CreateOpeningB
                 """
                 INSERT INTO public.finance_records
                     (id, organization_id, category_id, type, amount, record_date, description,
+                     period_year, period_month,
                      is_opening_balance, created_by, created_at, updated_at)
                 VALUES
                     (@Id, @OrganizationId, @CategoryId, @Type, @Amount, @RecordDate, @Description,
+                     @PeriodYear, @PeriodMonth,
                      @IsOpeningBalance, @CreatedBy, @CreatedAt, @UpdatedAt)
                 """,
                 new
@@ -91,6 +95,8 @@ public class CreateOpeningBalanceCommandHandler : IRequestHandler<CreateOpeningB
                     record.Amount,
                     RecordDate = record.RecordDate.ToDateTime(TimeOnly.MinValue),
                     record.Description,
+                    record.PeriodYear,
+                    record.PeriodMonth,
                     record.IsOpeningBalance,
                     record.CreatedBy,
                     CreatedAt = record.CreatedAt.UtcDateTime,

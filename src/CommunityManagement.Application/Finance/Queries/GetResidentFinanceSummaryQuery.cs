@@ -8,7 +8,8 @@ using MediatR;
 namespace CommunityManagement.Application.Finance.Queries;
 
 public record GetResidentFinanceSummaryQuery(
-    Guid OrgId, int Year, int Month
+    Guid OrgId, int Year, int Month,
+    string ReportBasis = "period"
 ) : IRequest<ResidentFinanceSummaryResult>;
 
 public record ResidentFinanceSummaryResult(
@@ -44,10 +45,15 @@ public class GetResidentFinanceSummaryQueryHandler : IRequestHandler<GetResident
         // Tüm authenticated üyeler görebilir (şeffaflık)
         await _currentUser.RequireRoleAsync(request.OrgId, MemberRole.Resident, ct);
 
-        var totals = await _records.GetMonthlyTotalsAsync(request.OrgId, request.Year, request.Month, ct);
-        var duesCollected = await _records.GetDuesCollectedAsync(request.OrgId, request.Year, request.Month, ct);
-        var expenseBreakdown = await _records.GetCategoryBreakdownAsync(request.OrgId, "expense", request.Year, request.Month, ct);
-        var expenseTrend = await _records.GetExpenseTrendAsync(request.OrgId, 6, ct);
+        if (request.ReportBasis is not ("period" or "cash"))
+            throw Application.Common.AppException.UnprocessableEntity("reportBasis 'period' veya 'cash' olmalıdır.");
+
+        var basis = request.ReportBasis;
+
+        var totals = await _records.GetMonthlyTotalsAsync(request.OrgId, request.Year, request.Month, basis, ct);
+        var duesCollected = await _records.GetDuesCollectedAsync(request.OrgId, request.Year, request.Month, basis, ct);
+        var expenseBreakdown = await _records.GetCategoryBreakdownAsync(request.OrgId, "expense", request.Year, request.Month, basis, ct);
+        var expenseTrend = await _records.GetExpenseTrendAsync(request.OrgId, 6, basis, ct);
 
         // Aktif ünite sayısı
         using var conn = _factory.CreateUserConnection();

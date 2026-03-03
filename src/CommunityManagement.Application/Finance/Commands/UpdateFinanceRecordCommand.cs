@@ -13,7 +13,8 @@ namespace CommunityManagement.Application.Finance.Commands;
 public record UpdateFinanceRecordCommand(
     Guid OrgId, Guid RecordId, Guid CategoryId,
     decimal Amount, DateOnly RecordDate, string Description,
-    string? PaymentMethod
+    string? PaymentMethod,
+    int? PeriodYear, int? PeriodMonth
 ) : IRequest<FinanceRecord>;
 
 public class UpdateFinanceRecordCommandHandler : IRequestHandler<UpdateFinanceRecordCommand, FinanceRecord>
@@ -72,12 +73,29 @@ public class UpdateFinanceRecordCommandHandler : IRequestHandler<UpdateFinanceRe
         if (record.Type == "expense" && string.IsNullOrWhiteSpace(request.PaymentMethod))
             throw AppException.UnprocessableEntity("Gider kaydı için ödeme yöntemi zorunludur.");
 
+        // Dönem: null ise mevcut değer korunur (partial update)
+        var periodYear = request.PeriodYear ?? record.PeriodYear;
+        var periodMonth = request.PeriodMonth ?? record.PeriodMonth;
+
+        if (request.PeriodYear.HasValue || request.PeriodMonth.HasValue)
+        {
+            var now2 = DateTime.UtcNow;
+            var minPeriod = new DateOnly(now2.Year, now2.Month, 1).AddMonths(-24);
+            var maxPeriod = new DateOnly(now2.Year, now2.Month, 1).AddMonths(1);
+            var requestedPeriod = new DateOnly(periodYear, periodMonth, 1);
+
+            if (requestedPeriod < minPeriod || requestedPeriod > maxPeriod)
+                throw AppException.UnprocessableEntity("Dönem son 24 ay ile gelecek 1 ay arasında olmalıdır.");
+        }
+
         var currentUserId = _currentUser.UserId;
-        var oldValues = new { record.Amount, record.Description, record.CategoryId, record.RecordDate };
+        var oldValues = new { record.Amount, record.Description, record.CategoryId, record.RecordDate, record.PeriodYear, record.PeriodMonth };
 
         record.CategoryId = request.CategoryId;
         record.Amount = request.Amount;
         record.RecordDate = request.RecordDate;
+        record.PeriodYear = periodYear;
+        record.PeriodMonth = periodMonth;
         record.Description = request.Description.Trim();
         record.PaymentMethod = request.PaymentMethod;
         record.UpdatedBy = currentUserId;
@@ -94,6 +112,7 @@ public class UpdateFinanceRecordCommandHandler : IRequestHandler<UpdateFinanceRe
                 UPDATE public.finance_records
                 SET category_id = @CategoryId, amount = @Amount, record_date = @RecordDate,
                     description = @Description, payment_method = @PaymentMethod,
+                    period_year = @PeriodYear, period_month = @PeriodMonth,
                     updated_by = @UpdatedBy, updated_at = @UpdatedAt
                 WHERE id = @Id
                 """,
@@ -105,6 +124,8 @@ public class UpdateFinanceRecordCommandHandler : IRequestHandler<UpdateFinanceRe
                     RecordDate = record.RecordDate.ToDateTime(TimeOnly.MinValue),
                     record.Description,
                     record.PaymentMethod,
+                    record.PeriodYear,
+                    record.PeriodMonth,
                     record.UpdatedBy,
                     UpdatedAt = record.UpdatedAt.UtcDateTime
                 }, tx);
@@ -119,7 +140,7 @@ public class UpdateFinanceRecordCommandHandler : IRequestHandler<UpdateFinanceRe
                     RecordId = record.Id,
                     ActorId = currentUserId,
                     OldValues = JsonSerializer.Serialize(oldValues),
-                    NewValues = JsonSerializer.Serialize(new { record.Amount, record.Description, record.CategoryId, record.RecordDate })
+                    NewValues = JsonSerializer.Serialize(new { record.Amount, record.Description, record.CategoryId, record.RecordDate, record.PeriodYear, record.PeriodMonth })
                 }, tx);
 
             await tx.CommitAsync(ct);

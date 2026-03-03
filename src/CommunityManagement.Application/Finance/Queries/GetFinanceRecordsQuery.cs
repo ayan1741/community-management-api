@@ -8,6 +8,7 @@ namespace CommunityManagement.Application.Finance.Queries;
 public record GetFinanceRecordsQuery(
     Guid OrgId, string? Type, Guid? CategoryId,
     DateOnly? StartDate, DateOnly? EndDate,
+    int? PeriodYear, int? PeriodMonth,
     int Page, int PageSize
 ) : IRequest<FinanceRecordListResult>;
 
@@ -34,6 +35,7 @@ public class GetFinanceRecordsQueryHandler : IRequestHandler<GetFinanceRecordsQu
         var (items, totalCount) = await _records.GetByOrgIdAsync(
             request.OrgId, request.Type, request.CategoryId,
             request.StartDate, request.EndDate,
+            request.PeriodYear, request.PeriodMonth,
             request.Page, request.PageSize, ct);
 
         return new FinanceRecordListResult(items, totalCount, request.Page, request.PageSize);

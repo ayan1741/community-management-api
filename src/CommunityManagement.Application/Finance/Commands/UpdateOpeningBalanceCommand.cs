@@ -45,6 +45,8 @@ public class UpdateOpeningBalanceCommandHandler : IRequestHandler<UpdateOpeningB
 
         record.Amount = request.Amount;
         record.RecordDate = request.RecordDate;
+        record.PeriodYear = request.RecordDate.Year;
+        record.PeriodMonth = request.RecordDate.Month;
         record.Description = request.Description?.Trim() ?? "Devir bakiyesi";
         record.UpdatedBy = currentUserId;
         record.UpdatedAt = DateTimeOffset.UtcNow;
@@ -59,6 +61,7 @@ public class UpdateOpeningBalanceCommandHandler : IRequestHandler<UpdateOpeningB
                 """
                 UPDATE public.finance_records
                 SET amount = @Amount, record_date = @RecordDate, description = @Description,
+                    period_year = @PeriodYear, period_month = @PeriodMonth,
                     updated_by = @UpdatedBy, updated_at = @UpdatedAt
                 WHERE id = @Id
                 """,
@@ -68,6 +71,8 @@ public class UpdateOpeningBalanceCommandHandler : IRequestHandler<UpdateOpeningB
                     record.Amount,
                     RecordDate = record.RecordDate.ToDateTime(TimeOnly.MinValue),
                     record.Description,
+                    record.PeriodYear,
+                    record.PeriodMonth,
                     record.UpdatedBy,
                     UpdatedAt = record.UpdatedAt.UtcDateTime
                 }, tx);

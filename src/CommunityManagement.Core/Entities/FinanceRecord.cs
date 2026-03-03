@@ -8,6 +8,8 @@ public class FinanceRecord
     public string Type { get; set; } = default!; // "income" | "expense"
     public decimal Amount { get; set; }
     public DateOnly RecordDate { get; set; }
+    public int PeriodYear { get; set; }
+    public int PeriodMonth { get; set; }
     public string Description { get; set; } = default!;
     public string? PaymentMethod { get; set; }
     public string? DocumentUrl { get; set; }
