@@ -3,6 +3,7 @@ using CommunityManagement.Application.Organizations.Commands;
 using CommunityManagement.Core.Enums;
 using CommunityManagement.Core.Repositories;
 using CommunityManagement.Core.Services;
+using MediatR;
 using NSubstitute;
 
 namespace CommunityManagement.Tests.Organizations;
@@ -13,11 +14,12 @@ public class CreateOrganizationCommandHandlerTests
     private readonly IMemberRepository _members = Substitute.For<IMemberRepository>();
     private readonly IBlockRepository _blocks = Substitute.For<IBlockRepository>();
     private readonly ICurrentUserService _currentUser = Substitute.For<ICurrentUserService>();
+    private readonly IMediator _mediator = Substitute.For<IMediator>();
     private readonly CreateOrganizationCommandHandler _sut;
 
     public CreateOrganizationCommandHandlerTests()
     {
-        _sut = new CreateOrganizationCommandHandler(_organizations, _members, _blocks, _currentUser);
+        _sut = new CreateOrganizationCommandHandler(_organizations, _members, _blocks, _currentUser, _mediator);
     }
 
     [Fact]

@@ -95,5 +95,10 @@ app.MapPaymentEndpoints();
 app.MapLateFeeEndpoints();
 app.MapDuesSummaryEndpoints();
 app.MapUnitResidentEndpoints();
+app.MapFinanceCategoryEndpoints();
+app.MapFinanceRecordEndpoints();
+app.MapFinanceBudgetEndpoints();
+app.MapFinanceReportEndpoints();
+app.MapFinanceOpeningBalanceEndpoints();
 
 app.Run();

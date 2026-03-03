@@ -43,6 +43,9 @@ public static class DependencyInjection
         services.AddScoped<ILateFeeRepository, LateFeeRepository>();
         services.AddScoped<IOrganizationDueSettingsRepository, OrganizationDueSettingsRepository>();
         services.AddScoped<IUnitResidentRepository, UnitResidentRepository>();
+        services.AddScoped<IFinanceCategoryRepository, FinanceCategoryRepository>();
+        services.AddScoped<IFinanceRecordRepository, FinanceRecordRepository>();
+        services.AddScoped<IFinanceBudgetRepository, FinanceBudgetRepository>();
 
         // Services
         services.AddHttpContextAccessor();
@@ -56,6 +59,13 @@ public static class DependencyInjection
             ?? throw new InvalidOperationException("Supabase:ServiceRoleKey yapılandırması eksik.");
 
         services.AddHttpClient<ISessionService, SupabaseSessionService>(client =>
+        {
+            client.BaseAddress = new Uri(supabaseUrl.TrimEnd('/') + "/");
+            client.DefaultRequestHeaders.Add("apikey", serviceRoleKey);
+            client.DefaultRequestHeaders.Add("Authorization", $"Bearer {serviceRoleKey}");
+        });
+
+        services.AddHttpClient<ISupabaseStorageService, SupabaseStorageService>(client =>
         {
             client.BaseAddress = new Uri(supabaseUrl.TrimEnd('/') + "/");
             client.DefaultRequestHeaders.Add("apikey", serviceRoleKey);
