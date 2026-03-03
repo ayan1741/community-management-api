@@ -1,4 +1,5 @@
 using CommunityManagement.Application.Common;
+using CommunityManagement.Application.Finance.Commands;
 using CommunityManagement.Core.Entities;
 using CommunityManagement.Core.Enums;
 using CommunityManagement.Core.Repositories;
@@ -29,17 +30,20 @@ public class CreateOrganizationCommandHandler : IRequestHandler<CreateOrganizati
     private readonly IMemberRepository _members;
     private readonly IBlockRepository _blocks;
     private readonly ICurrentUserService _currentUser;
+    private readonly IMediator _mediator;
 
     public CreateOrganizationCommandHandler(
         IOrganizationRepository organizations,
         IMemberRepository members,
         IBlockRepository blocks,
-        ICurrentUserService currentUser)
+        ICurrentUserService currentUser,
+        IMediator mediator)
     {
         _organizations = organizations;
         _members = members;
         _blocks = blocks;
         _currentUser = currentUser;
+        _mediator = mediator;
     }
 
     public async Task<CreateOrganizationResult> Handle(CreateOrganizationCommand request, CancellationToken ct)
@@ -95,6 +99,9 @@ public class CreateOrganizationCommandHandler : IRequestHandler<CreateOrganizati
             var created = await _blocks.CreateAsync(defaultBlock, ct);
             defaultBlockId = created.Id;
         }
+
+        // Varsayılan gelir-gider kategorilerini seed et
+        await _mediator.Send(new SeedDefaultFinanceCategoriesCommand(org.Id), ct);
 
         return new CreateOrganizationResult(org.Id, org.Name, org.Status, "admin", defaultBlockId);
     }

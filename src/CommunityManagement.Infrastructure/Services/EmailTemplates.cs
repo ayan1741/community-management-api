@@ -57,4 +57,42 @@ public static class EmailTemplates
             <p class="amount">{amount:N2} TL</p>
             <p>Sorularınız için site yönetiminizle iletişime geçin.</p>
             """);
+
+    public static string MonthlyFinanceSummary(
+        string orgName, string fullName, string monthYear,
+        decimal totalIncome, decimal totalExpense, decimal netBalance,
+        IReadOnlyList<(string Name, decimal Amount)> topCategories)
+    {
+        var catRows = string.Join("",
+            topCategories.Select(c =>
+                $"<tr><td style=\"padding:6px 12px;border-bottom:1px solid #f3f4f6;\">{c.Name}</td>" +
+                $"<td style=\"padding:6px 12px;border-bottom:1px solid #f3f4f6;text-align:right;\">{c.Amount:N2} TL</td></tr>"));
+
+        var netColor = netBalance >= 0 ? "#16a34a" : "#dc2626";
+
+        return Wrap(orgName, $"Sayın {fullName},", $"""
+            <p>{monthYear} dönemi gelir-gider özeti:</p>
+            <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+              <tr>
+                <td style="padding:8px 12px;"><strong>Toplam Gelir</strong></td>
+                <td style="padding:8px 12px;text-align:right;color:#16a34a;font-weight:bold;">{totalIncome:N2} TL</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 12px;"><strong>Toplam Gider</strong></td>
+                <td style="padding:8px 12px;text-align:right;color:#dc2626;font-weight:bold;">{totalExpense:N2} TL</td>
+              </tr>
+              <tr style="border-top:2px solid #e5e7eb;">
+                <td style="padding:8px 12px;"><strong>Net Bakiye</strong></td>
+                <td style="padding:8px 12px;text-align:right;color:{netColor};font-weight:bold;font-size:18px;">{netBalance:N2} TL</td>
+              </tr>
+            </table>
+            {(topCategories.Count > 0 ? $"""
+            <p style="margin-top:16px;"><strong>En Büyük Gider Kalemleri:</strong></p>
+            <table style="width:100%;border-collapse:collapse;">
+              {catRows}
+            </table>
+            """ : "")}
+            <p style="margin-top:16px;">Detaylı bilgi için KomşuNet uygulamasını ziyaret edin.</p>
+            """);
+    }
 }

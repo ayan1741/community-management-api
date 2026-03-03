@@ -45,7 +45,7 @@ public class BackgroundJobService : BackgroundService
                 """
                 SELECT id, job_type, payload
                 FROM public.background_jobs
-                WHERE job_type IN ('due_reminder','late_notice','payment_email','payment_cancel_email')
+                WHERE job_type IN ('due_reminder','late_notice','payment_email','payment_cancel_email','monthly_finance_summary')
                   AND status = 'queued'
                 ORDER BY created_at ASC
                 LIMIT 10
@@ -87,6 +87,9 @@ public class BackgroundJobService : BackgroundService
                     break;
                 case "payment_cancel_email":
                     await ProcessPaymentCancelEmailAsync(factory, emailService, job, ct);
+                    break;
+                case "monthly_finance_summary":
+                    await ProcessMonthlyFinanceSummaryAsync(factory, emailService, job, ct);
                     break;
                 default:
                     _logger.LogWarning("Bilinmeyen job tipi: {JobType}", job.JobType);
@@ -314,10 +317,102 @@ public class BackgroundJobService : BackgroundService
         }
     }
 
+    private async Task ProcessMonthlyFinanceSummaryAsync(IDbConnectionFactory factory, IEmailService emailService, JobRow job, CancellationToken ct)
+    {
+        var payload = JsonSerializer.Deserialize<JsonElement>(job.Payload);
+        var orgId = payload.GetProperty("organization_id").GetGuid();
+        var year = payload.GetProperty("year").GetInt32();
+        var month = payload.GetProperty("month").GetInt32();
+
+        using var conn = factory.CreateServiceRoleConnection();
+
+        var orgName = await conn.QuerySingleOrDefaultAsync<string>(
+            "SELECT name FROM public.organizations WHERE id = @OrgId",
+            new { OrgId = orgId });
+
+        if (orgName is null)
+        {
+            _logger.LogWarning("monthly_finance_summary: orgId={OrgId} organizasyon bulunamadı.", orgId);
+            return;
+        }
+
+        // Aylık toplamlar (finance_records)
+        var totals = await conn.QuerySingleAsync<FinanceTotalsRow>(
+            """
+            SELECT
+              COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) AS total_income,
+              COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) AS total_expense
+            FROM public.finance_records
+            WHERE organization_id = @OrgId AND deleted_at IS NULL
+              AND EXTRACT(YEAR FROM record_date) = @Year
+              AND EXTRACT(MONTH FROM record_date) = @Month
+            """,
+            new { OrgId = orgId, Year = year, Month = month });
+
+        // Aidat tahsilatı (payments)
+        var duesCollected = await conn.QuerySingleAsync<decimal>(
+            """
+            SELECT COALESCE(SUM(p.amount), 0)
+            FROM public.payments p
+            JOIN public.unit_dues ud ON ud.id = p.unit_due_id
+            JOIN public.dues_periods dp ON dp.id = ud.period_id
+            WHERE dp.organization_id = @OrgId
+              AND p.cancelled_at IS NULL
+              AND p.paid_at >= make_date(@Year, @Month, 1)::timestamptz
+              AND p.paid_at < (make_date(@Year, @Month, 1) + interval '1 month')::timestamptz
+            """,
+            new { OrgId = orgId, Year = year, Month = month });
+
+        // En büyük 3 gider kategorisi
+        var topCategories = (await conn.QueryAsync<TopCategoryRow>(
+            """
+            SELECT fc.name, SUM(fr.amount) AS amount
+            FROM public.finance_records fr
+            JOIN public.finance_categories fc ON fc.id = fr.category_id
+            WHERE fr.organization_id = @OrgId AND fr.deleted_at IS NULL
+              AND fr.type = 'expense'
+              AND EXTRACT(YEAR FROM fr.record_date) = @Year
+              AND EXTRACT(MONTH FROM fr.record_date) = @Month
+            GROUP BY fc.name
+            ORDER BY SUM(fr.amount) DESC
+            LIMIT 3
+            """,
+            new { OrgId = orgId, Year = year, Month = month })).ToList();
+
+        // Tüm aktif üyelerin emailleri
+        var recipients = (await conn.QueryAsync<EmailRecipient>(
+            """
+            SELECT DISTINCT p.full_name, au.email
+            FROM public.organization_members om
+            JOIN public.profiles p ON p.id = om.user_id
+            JOIN auth.users au ON au.id = om.user_id
+            WHERE om.organization_id = @OrgId AND om.status = 'active'
+            """,
+            new { OrgId = orgId })).ToList();
+
+        var totalIncome = totals.TotalIncome + duesCollected;
+        var totalExpense = totals.TotalExpense;
+        var netBalance = totalIncome - totalExpense;
+        var monthYear = new DateTime(year, month, 1).ToString("MMMM yyyy", new System.Globalization.CultureInfo("tr-TR"));
+
+        var topCatList = topCategories.Select(c => (c.Name, c.Amount)).ToList();
+
+        foreach (var r in recipients)
+        {
+            if (string.IsNullOrEmpty(r.Email)) continue;
+            var html = EmailTemplates.MonthlyFinanceSummary(orgName, r.FullName, monthYear, totalIncome, totalExpense, netBalance, topCatList);
+            await emailService.SendAsync(r.Email, $"Aylık Gelir-Gider Özeti — {monthYear}", html, ct);
+        }
+
+        _logger.LogInformation("monthly_finance_summary: {OrgId} — {MonthYear} — {Count} üyeye email gönderildi.", orgId, monthYear, recipients.Count);
+    }
+
     private record JobRow(Guid Id, string JobType, string Payload);
     private record ReminderRecipient(string FullName, string? Email, decimal TotalOwed);
     private record EmailRecipient(string FullName, string? Email);
     private record PeriodInfo(string PeriodName, string OrgName);
     private record LateNoticeDetail(decimal Amount, DateTime DueDate, string PeriodName, string OrgName);
     private record PaymentEmailDetail(string ReceiptNumber, decimal Amount, string PeriodName, string OrgName);
+    private record FinanceTotalsRow(decimal TotalIncome, decimal TotalExpense);
+    private record TopCategoryRow(string Name, decimal Amount);
 }
