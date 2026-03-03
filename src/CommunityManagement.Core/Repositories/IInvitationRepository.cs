@@ -15,7 +15,21 @@ public interface IInvitationRepository
     Task<IReadOnlyList<Guid>> GetUnitsWithActiveInvitationAsync(IReadOnlyList<Guid> unitIds, CancellationToken ct = default);
     Task<IReadOnlyList<Invitation>> CreateBulkAsync(IReadOnlyList<Invitation> invitations, CancellationToken ct = default);
     Task RevokeBulkByUnitIdsAsync(IReadOnlyList<Guid> unitIds, CancellationToken ct = default);
+    Task<InvitationDetail?> GetByCodeWithDetailsAsync(string code, CancellationToken ct = default);
 }
+
+public record InvitationDetail(
+    Guid Id,
+    Guid OrganizationId,
+    Guid UnitId,
+    string InvitationCode,
+    string CodeStatus,
+    Guid CreatedBy,
+    DateTimeOffset ExpiresAt,
+    string OrganizationName,
+    string? BlockName,
+    string UnitNumber
+);
 
 public record InvitationListItem(
     Guid InvitationId,
