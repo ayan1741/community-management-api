@@ -180,6 +180,42 @@ public class InvitationRepository : IInvitationRepository
         return results;
     }
 
+    public async Task<InvitationDetail?> GetByCodeWithDetailsAsync(string code, CancellationToken ct = default)
+    {
+        using var conn = _factory.CreateUserConnection();
+        const string sql = """
+            SELECT
+                ic.id, ic.organization_id, ic.unit_id, ic.invitation_code,
+                ic.code_status, ic.created_by, ic.expires_at,
+                o.name AS organization_name, b.name AS block_name, u.unit_number
+            FROM public.invitation_codes ic
+            JOIN public.organizations o ON o.id = ic.organization_id
+            JOIN public.units u ON u.id = ic.unit_id
+            JOIN public.blocks b ON b.id = u.block_id
+            WHERE ic.invitation_code = @Code
+            """;
+        var row = await conn.QuerySingleOrDefaultAsync<InvitationDetailRow>(sql, new { Code = code });
+        if (row is null) return null;
+        return new InvitationDetail(
+            row.Id, row.OrganizationId, row.UnitId, row.InvitationCode,
+            row.CodeStatus, row.CreatedBy,
+            new DateTimeOffset(row.ExpiresAt, TimeSpan.Zero),
+            row.OrganizationName, row.BlockName, row.UnitNumber);
+    }
+
+    private record InvitationDetailRow(
+        Guid Id,
+        Guid OrganizationId,
+        Guid UnitId,
+        string InvitationCode,
+        string CodeStatus,
+        Guid CreatedBy,
+        DateTime ExpiresAt,
+        string OrganizationName,
+        string? BlockName,
+        string UnitNumber
+    );
+
     private record InvitationRow(
         Guid InvitationId,
         string InvitationCode,

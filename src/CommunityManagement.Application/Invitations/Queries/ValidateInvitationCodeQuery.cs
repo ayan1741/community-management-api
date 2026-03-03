@@ -1,5 +1,4 @@
 using CommunityManagement.Application.Common;
-using CommunityManagement.Core.Enums;
 using CommunityManagement.Core.Repositories;
 using MediatR;
 
@@ -27,19 +26,22 @@ public class ValidateInvitationCodeQueryHandler : IRequestHandler<ValidateInvita
 
     public async Task<ValidateInvitationCodeResult> Handle(ValidateInvitationCodeQuery request, CancellationToken ct)
     {
-        var invitation = await _invitations.GetByCodeAsync(request.Code.ToUpperInvariant(), ct);
+        var invitation = await _invitations.GetByCodeWithDetailsAsync(request.Code.ToUpperInvariant(), ct);
 
         if (invitation is null)
             return new ValidateInvitationCodeResult(false, "not_found", null, null, null, null);
 
-        if (invitation.CodeStatus == CodeStatus.Used)
+        if (invitation.CodeStatus == "used")
             return new ValidateInvitationCodeResult(false, "used", null, null, null, null);
 
-        if (invitation.CodeStatus == CodeStatus.Revoked || invitation.CodeStatus == CodeStatus.Expired
-            || invitation.ExpiresAt < DateTimeOffset.UtcNow)
+        if (invitation.CodeStatus is "revoked" or "expired" || invitation.ExpiresAt < DateTimeOffset.UtcNow)
             return new ValidateInvitationCodeResult(false, "expired", null, null, null, null);
 
-        // Unit/org details fetched via repository join (returned in invitation object via extended query)
-        return new ValidateInvitationCodeResult(true, null, null, null, null, invitation.ExpiresAt);
+        return new ValidateInvitationCodeResult(
+            true, null,
+            invitation.OrganizationName,
+            invitation.BlockName,
+            invitation.UnitNumber,
+            invitation.ExpiresAt);
     }
 }
