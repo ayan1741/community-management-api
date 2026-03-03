@@ -1,10 +1,10 @@
 using CommunityManagement.Application.Common;
+using CommunityManagement.Core.Common;
 using CommunityManagement.Core.Enums;
 using CommunityManagement.Core.Repositories;
 using CommunityManagement.Core.Services;
+using Dapper;
 using MediatR;
-using CommunityManagement.Core.Entities;
-using ApplicationEntity = CommunityManagement.Core.Entities.Application;
 
 namespace CommunityManagement.Application.Applications.Commands;
 
@@ -29,6 +29,7 @@ public class SubmitApplicationCommandHandler : IRequestHandler<SubmitApplication
     private readonly IProfileRepository _profiles;
     private readonly IUnitResidentRepository _unitResidents;
     private readonly ICurrentUserService _currentUser;
+    private readonly IDbConnectionFactory _factory;
 
     public SubmitApplicationCommandHandler(
         IApplicationRepository applications,
@@ -36,7 +37,8 @@ public class SubmitApplicationCommandHandler : IRequestHandler<SubmitApplication
         IMemberRepository members,
         IProfileRepository profiles,
         IUnitResidentRepository unitResidents,
-        ICurrentUserService currentUser)
+        ICurrentUserService currentUser,
+        IDbConnectionFactory factory)
     {
         _applications = applications;
         _invitations = invitations;
@@ -44,6 +46,7 @@ public class SubmitApplicationCommandHandler : IRequestHandler<SubmitApplication
         _profiles = profiles;
         _unitResidents = unitResidents;
         _currentUser = currentUser;
+        _factory = factory;
     }
 
     public async Task<SubmitApplicationResult> Handle(SubmitApplicationCommand request, CancellationToken ct)
@@ -65,61 +68,110 @@ public class SubmitApplicationCommandHandler : IRequestHandler<SubmitApplication
     private async Task<SubmitApplicationResult> HandleInvitedFlow(
         SubmitApplicationCommand request, Guid userId, CancellationToken ct)
     {
+        // Okuma işlemleri — repo'lar üzerinden
         var invitation = await _invitations.GetByCodeAsync(request.InvitationCode!.ToUpperInvariant(), ct)
             ?? throw AppException.UnprocessableEntity("Geçersiz davet kodu.");
 
         if (invitation.CodeStatus != CodeStatus.Active || invitation.ExpiresAt < DateTimeOffset.UtcNow)
             throw AppException.UnprocessableEntity("Davet kodunun süresi dolmuş veya geçersiz.");
 
-        var application = new ApplicationEntity
-        {
-            Id = Guid.NewGuid(),
-            OrganizationId = invitation.OrganizationId,
-            UnitId = invitation.UnitId,
-            InvitationId = invitation.Id,
-            ApplicantUserId = userId,
-            ApplicantResidentType = request.ResidentType,
-            ApplicationStatus = ApplicationStatus.Approved,
-            ReviewedAt = DateTimeOffset.UtcNow,
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow
-        };
-
-        await _applications.CreateAsync(application, ct);
-        await _invitations.UpdateStatusAsync(invitation.Id, CodeStatus.Used, ct);
-
         var existingMember = await _members.GetByUserIdAsync(invitation.OrganizationId, userId, ct);
-        var member = existingMember ?? new OrganizationMember
-        {
-            Id = Guid.NewGuid(),
-            OrganizationId = invitation.OrganizationId,
-            UserId = userId,
-            Role = MemberRole.Resident,
-            Status = MemberStatus.Active,
-            InvitedBy = invitation.CreatedBy,
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow
-        };
-
-        if (existingMember is not null)
-            member.Status = MemberStatus.Active;
-
-        await _members.UpsertAsync(member, ct);
-
-        // unit_residents kaydı oluştur (ON CONFLICT DO NOTHING ile idempotent)
         var currentResidents = await _unitResidents.GetByUnitIdAsync(invitation.UnitId, ct);
-        await _unitResidents.CreateAsync(new UnitResident
-        {
-            Id = Guid.NewGuid(),
-            UnitId = invitation.UnitId,
-            UserId = userId,
-            OrganizationId = invitation.OrganizationId,
-            ResidentType = request.ResidentType,
-            IsPrimary = currentResidents.Count == 0,
-            Status = UnitResidentStatus.Active
-        }, ct);
 
-        return new SubmitApplicationResult(application.Id, "approved", "Davet kabul edildi. Hoş geldiniz!");
+        var applicationId = Guid.NewGuid();
+        var memberId = existingMember?.Id ?? Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+        var memberStatus = existingMember is not null ? MemberStatus.Active : MemberStatus.Active;
+
+        // Yazma işlemleri — tek transaction içinde
+        await using var conn = _factory.CreateServiceRoleDbConnection();
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        try
+        {
+            // a. Başvuru kaydı oluştur
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO public.applications
+                  (id, organization_id, unit_id, invitation_id, applicant_user_id,
+                   applicant_resident_type, application_status, rejection_reason,
+                   reviewed_by, reviewed_at, created_at, updated_at)
+                VALUES
+                  (@Id, @OrganizationId, @UnitId, @InvitationId, @ApplicantUserId,
+                   @ApplicantResidentType, @ApplicationStatus, NULL,
+                   NULL, @ReviewedAt, @CreatedAt, @UpdatedAt)
+                """,
+                new
+                {
+                    Id = applicationId,
+                    invitation.OrganizationId,
+                    invitation.UnitId,
+                    InvitationId = invitation.Id,
+                    ApplicantUserId = userId,
+                    ApplicantResidentType = request.ResidentType.ToString().ToLower(),
+                    ApplicationStatus = "approved",
+                    ReviewedAt = now.UtcDateTime,
+                    CreatedAt = now.UtcDateTime,
+                    UpdatedAt = now.UtcDateTime,
+                }, tx);
+
+            // b. Davet kodunu kullanıldı olarak işaretle
+            await conn.ExecuteAsync(
+                "UPDATE public.invitation_codes SET code_status = 'used', updated_at = now() WHERE id = @Id",
+                new { invitation.Id }, tx);
+
+            // c. Üyelik kaydı oluştur/güncelle
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO public.organization_members
+                  (id, organization_id, user_id, role, status, invited_by, created_at, updated_at)
+                VALUES
+                  (@Id, @OrganizationId, @UserId, 'resident', @Status, @InvitedBy, @CreatedAt, @UpdatedAt)
+                ON CONFLICT (organization_id, user_id) DO UPDATE
+                SET role = EXCLUDED.role,
+                    status = EXCLUDED.status,
+                    updated_at = now()
+                """,
+                new
+                {
+                    Id = memberId,
+                    invitation.OrganizationId,
+                    UserId = userId,
+                    Status = memberStatus.ToString().ToLower(),
+                    InvitedBy = invitation.CreatedBy,
+                    CreatedAt = now.UtcDateTime,
+                    UpdatedAt = now.UtcDateTime,
+                }, tx);
+
+            // d. Daire sakini kaydı oluştur (ON CONFLICT DO NOTHING ile idempotent)
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO public.unit_residents
+                    (id, unit_id, user_id, organization_id, resident_type, is_primary, status)
+                VALUES
+                    (@Id, @UnitId, @UserId, @OrganizationId, @ResidentType, @IsPrimary, 'active')
+                ON CONFLICT (unit_id, user_id) WHERE status = 'active' DO NOTHING
+                """,
+                new
+                {
+                    Id = Guid.NewGuid(),
+                    invitation.UnitId,
+                    UserId = userId,
+                    invitation.OrganizationId,
+                    ResidentType = request.ResidentType.ToString().ToLower(),
+                    IsPrimary = currentResidents.Count == 0,
+                }, tx);
+
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
+
+        return new SubmitApplicationResult(applicationId, "approved", "Davet kabul edildi. Hoş geldiniz!");
     }
 
     private async Task<SubmitApplicationResult> HandleCodeslessFlow(
@@ -132,7 +184,7 @@ public class SubmitApplicationCommandHandler : IRequestHandler<SubmitApplication
         if (hasPending)
             throw AppException.UnprocessableEntity("Bu daire için zaten bekleyen bir başvurunuz var.");
 
-        var application = new ApplicationEntity
+        var application = new Core.Entities.Application
         {
             Id = Guid.NewGuid(),
             OrganizationId = request.OrganizationId.Value,

@@ -1,8 +1,9 @@
 using CommunityManagement.Application.Common;
-using CommunityManagement.Core.Entities;
+using CommunityManagement.Core.Common;
 using CommunityManagement.Core.Enums;
 using CommunityManagement.Core.Repositories;
 using CommunityManagement.Core.Services;
+using Dapper;
 using MediatR;
 
 namespace CommunityManagement.Application.Applications.Commands;
@@ -15,21 +16,25 @@ public class ApproveApplicationCommandHandler : IRequestHandler<ApproveApplicati
     private readonly IMemberRepository _members;
     private readonly IUnitResidentRepository _unitResidents;
     private readonly ICurrentUserService _currentUser;
+    private readonly IDbConnectionFactory _factory;
 
     public ApproveApplicationCommandHandler(
         IApplicationRepository applications,
         IMemberRepository members,
         IUnitResidentRepository unitResidents,
-        ICurrentUserService currentUser)
+        ICurrentUserService currentUser,
+        IDbConnectionFactory factory)
     {
         _applications = applications;
         _members = members;
         _unitResidents = unitResidents;
         _currentUser = currentUser;
+        _factory = factory;
     }
 
     public async Task Handle(ApproveApplicationCommand request, CancellationToken ct)
     {
+        // Okuma işlemleri — repo'lar üzerinden
         await _currentUser.RequireRoleAsync(request.OrgId, MemberRole.Admin, ct);
 
         var memberStatus = await _currentUser.GetMembershipStatusAsync(request.OrgId, ct);
@@ -45,39 +50,83 @@ public class ApproveApplicationCommandHandler : IRequestHandler<ApproveApplicati
         if (application.ApplicationStatus != ApplicationStatus.Pending)
             throw AppException.UnprocessableEntity("Yalnızca bekleyen başvurular onaylanabilir.");
 
-        var reviewedAt = DateTimeOffset.UtcNow;
-        await _applications.UpdateStatusAsync(
-            request.ApplicationId, ApplicationStatus.Approved,
-            _currentUser.UserId, null, reviewedAt, ct);
-
         var existingMember = await _members.GetByUserIdAsync(request.OrgId, application.ApplicantUserId, ct);
-        var member = existingMember ?? new OrganizationMember
-        {
-            Id = Guid.NewGuid(),
-            OrganizationId = request.OrgId,
-            UserId = application.ApplicantUserId,
-            Role = MemberRole.Resident,
-            Status = MemberStatus.Active,
-            CreatedAt = DateTimeOffset.UtcNow,
-            UpdatedAt = DateTimeOffset.UtcNow
-        };
-
-        if (existingMember is not null)
-            member.Status = MemberStatus.Active;
-
-        await _members.UpsertAsync(member, ct);
-
-        // unit_residents kaydı oluştur (ON CONFLICT DO NOTHING ile idempotent)
         var currentResidents = await _unitResidents.GetByUnitIdAsync(application.UnitId, ct);
-        await _unitResidents.CreateAsync(new UnitResident
+
+        var now = DateTimeOffset.UtcNow;
+        var memberId = existingMember?.Id ?? Guid.NewGuid();
+
+        // Yazma işlemleri — tek transaction içinde
+        await using var conn = _factory.CreateServiceRoleDbConnection();
+        await conn.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        try
         {
-            Id = Guid.NewGuid(),
-            UnitId = application.UnitId,
-            UserId = application.ApplicantUserId,
-            OrganizationId = application.OrganizationId,
-            ResidentType = application.ApplicantResidentType,
-            IsPrimary = currentResidents.Count == 0,
-            Status = UnitResidentStatus.Active
-        }, ct);
+            // a. Başvuru durumunu güncelle
+            await conn.ExecuteAsync(
+                """
+                UPDATE public.applications
+                SET application_status = 'approved',
+                    reviewed_by = @ReviewedBy,
+                    rejection_reason = NULL,
+                    reviewed_at = @ReviewedAt,
+                    updated_at = now()
+                WHERE id = @ApplicationId
+                """,
+                new
+                {
+                    request.ApplicationId,
+                    ReviewedBy = _currentUser.UserId,
+                    ReviewedAt = now.UtcDateTime,
+                }, tx);
+
+            // b. Üyelik kaydı oluştur/güncelle
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO public.organization_members
+                  (id, organization_id, user_id, role, status, invited_by, created_at, updated_at)
+                VALUES
+                  (@Id, @OrganizationId, @UserId, 'resident', 'active', NULL, @CreatedAt, @UpdatedAt)
+                ON CONFLICT (organization_id, user_id) DO UPDATE
+                SET role = EXCLUDED.role,
+                    status = EXCLUDED.status,
+                    updated_at = now()
+                """,
+                new
+                {
+                    Id = memberId,
+                    OrganizationId = request.OrgId,
+                    UserId = application.ApplicantUserId,
+                    CreatedAt = now.UtcDateTime,
+                    UpdatedAt = now.UtcDateTime,
+                }, tx);
+
+            // c. Daire sakini kaydı oluştur (ON CONFLICT DO NOTHING ile idempotent)
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO public.unit_residents
+                    (id, unit_id, user_id, organization_id, resident_type, is_primary, status)
+                VALUES
+                    (@Id, @UnitId, @UserId, @OrganizationId, @ResidentType, @IsPrimary, 'active')
+                ON CONFLICT (unit_id, user_id) WHERE status = 'active' DO NOTHING
+                """,
+                new
+                {
+                    Id = Guid.NewGuid(),
+                    application.UnitId,
+                    UserId = application.ApplicantUserId,
+                    application.OrganizationId,
+                    ResidentType = application.ApplicantResidentType.ToString().ToLower(),
+                    IsPrimary = currentResidents.Count == 0,
+                }, tx);
+
+            await tx.CommitAsync(ct);
+        }
+        catch
+        {
+            await tx.RollbackAsync(ct);
+            throw;
+        }
     }
 }
