@@ -95,4 +95,30 @@ public static class EmailTemplates
             <p style="margin-top:16px;">Detaylı bilgi için KomşuNet uygulamasını ziyaret edin.</p>
             """);
     }
+
+    public static string AnnouncementPublished(
+        string orgName, string fullName, string title, string body, string category, string authorName)
+    {
+        var categoryLabel = category switch
+        {
+            "general" => "Genel",
+            "urgent" => "Acil",
+            "maintenance" => "Bakım",
+            "meeting" => "Toplantı",
+            "financial" => "Mali",
+            "other" => "Diğer",
+            _ => category
+        };
+
+        var truncatedBody = body.Length > 500 ? body[..500] + "..." : body;
+
+        return Wrap(orgName, $"Sayın {fullName},",
+            $"""
+            <p>Yeni bir duyuru yayınlandı:</p>
+            <p><strong>{title}</strong></p>
+            <p style="color:#6b7280;font-size:13px;">Kategori: {categoryLabel} &middot; Yazan: {authorName}</p>
+            <p style="white-space:pre-wrap;">{truncatedBody}</p>
+            <p>Daha fazla bilgi ve tüm eklentiler için KomşuNet uygulamasını ziyaret edin.</p>
+            """);
+    }
 }

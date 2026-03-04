@@ -100,5 +100,7 @@ app.MapFinanceRecordEndpoints();
 app.MapFinanceBudgetEndpoints();
 app.MapFinanceReportEndpoints();
 app.MapFinanceOpeningBalanceEndpoints();
+app.MapAnnouncementEndpoints();
+app.MapNotificationEndpoints();
 
 app.Run();
