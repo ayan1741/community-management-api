@@ -50,6 +50,22 @@ public class CurrentUserService : ICurrentUserService
             throw AppException.Forbidden("Bu işlem için yetkiniz yok.");
     }
 
+    public async Task<MemberRole> GetRoleAsync(Guid orgId, CancellationToken ct = default)
+    {
+        using var conn = _factory.CreateUserConnection();
+        var role = await conn.QuerySingleOrDefaultAsync<string>(
+            "SELECT role FROM public.organization_members WHERE user_id = @UserId AND organization_id = @OrgId AND status = 'active'",
+            new { UserId, OrgId = orgId });
+
+        return role switch
+        {
+            "admin" => MemberRole.Admin,
+            "board_member" => MemberRole.BoardMember,
+            "resident" => MemberRole.Resident,
+            _ => throw AppException.Forbidden("Bu organizasyonun üyesi değilsiniz.")
+        };
+    }
+
     public async Task<MemberStatus> GetMembershipStatusAsync(Guid orgId, CancellationToken ct = default)
     {
         using var conn = _factory.CreateUserConnection();

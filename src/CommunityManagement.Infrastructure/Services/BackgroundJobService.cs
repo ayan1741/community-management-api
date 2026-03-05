@@ -45,7 +45,7 @@ public class BackgroundJobService : BackgroundService
                 """
                 SELECT id, job_type, payload
                 FROM public.background_jobs
-                WHERE job_type IN ('due_reminder','late_notice','payment_email','payment_cancel_email','monthly_finance_summary')
+                WHERE job_type IN ('due_reminder','late_notice','payment_email','payment_cancel_email','monthly_finance_summary','announcement_email')
                   AND status = 'queued'
                 ORDER BY created_at ASC
                 LIMIT 10
@@ -90,6 +90,9 @@ public class BackgroundJobService : BackgroundService
                     break;
                 case "monthly_finance_summary":
                     await ProcessMonthlyFinanceSummaryAsync(factory, emailService, job, ct);
+                    break;
+                case "announcement_email":
+                    await ProcessAnnouncementEmailAsync(factory, emailService, job, ct);
                     break;
                 default:
                     _logger.LogWarning("Bilinmeyen job tipi: {JobType}", job.JobType);
@@ -407,6 +410,103 @@ public class BackgroundJobService : BackgroundService
         _logger.LogInformation("monthly_finance_summary: {OrgId} — {MonthYear} — {Count} üyeye email gönderildi.", orgId, monthYear, recipients.Count);
     }
 
+    private async Task ProcessAnnouncementEmailAsync(IDbConnectionFactory factory, IEmailService emailService, JobRow job, CancellationToken ct)
+    {
+        var payload = JsonSerializer.Deserialize<JsonElement>(job.Payload);
+        var announcementId = payload.GetProperty("announcement_id").GetGuid();
+        var orgId = payload.GetProperty("organization_id").GetGuid();
+
+        using var conn = factory.CreateServiceRoleConnection();
+
+        // Duyuru bilgilerini al
+        var ann = await conn.QuerySingleOrDefaultAsync<AnnouncementEmailInfo>(
+            """
+            SELECT a.title, a.body, a.category, a.target_type, a.target_ids::text AS target_ids,
+                   o.name AS org_name, p.full_name AS author_name
+            FROM public.announcements a
+            JOIN public.organizations o ON o.id = a.organization_id
+            JOIN public.profiles p ON p.id = a.created_by
+            WHERE a.id = @Id AND a.status = 'published' AND a.deleted_at IS NULL
+            """,
+            new { Id = announcementId });
+
+        if (ann is null)
+        {
+            _logger.LogWarning("announcement_email: {AnnouncementId} duyuru bulunamadı veya silinmiş.", announcementId);
+            return;
+        }
+
+        // Hedef kitlenin email'lerini al (notification_email = true olanlar)
+        string recipientSql;
+        object recipientParam;
+
+        switch (ann.TargetType)
+        {
+            case "block":
+                var blockIds = JsonSerializer.Deserialize<List<string>>(ann.TargetIds!)!;
+                recipientSql = """
+                    SELECT DISTINCT p.full_name, au.email
+                    FROM public.organization_members om
+                    JOIN public.unit_residents ur ON ur.user_id = om.user_id AND ur.status = 'active'
+                    JOIN public.units u ON u.id = ur.unit_id
+                    JOIN public.profiles p ON p.id = om.user_id
+                    JOIN auth.users au ON au.id = om.user_id
+                    WHERE om.organization_id = @OrgId AND om.status = 'active'
+                      AND u.block_id = ANY(@BlockIds::uuid[])
+                      AND p.notification_email = true
+                    """;
+                recipientParam = new { OrgId = orgId, BlockIds = blockIds.ToArray() };
+                break;
+
+            case "role":
+                var roles = JsonSerializer.Deserialize<List<string>>(ann.TargetIds!)!;
+                recipientSql = """
+                    SELECT DISTINCT p.full_name, au.email
+                    FROM public.organization_members om
+                    JOIN public.profiles p ON p.id = om.user_id
+                    JOIN auth.users au ON au.id = om.user_id
+                    WHERE om.organization_id = @OrgId AND om.status = 'active'
+                      AND om.role = ANY(@Roles)
+                      AND p.notification_email = true
+                    """;
+                recipientParam = new { OrgId = orgId, Roles = roles.ToArray() };
+                break;
+
+            default: // "all"
+                recipientSql = """
+                    SELECT DISTINCT p.full_name, au.email
+                    FROM public.organization_members om
+                    JOIN public.profiles p ON p.id = om.user_id
+                    JOIN auth.users au ON au.id = om.user_id
+                    WHERE om.organization_id = @OrgId AND om.status = 'active'
+                      AND p.notification_email = true
+                    """;
+                recipientParam = new { OrgId = orgId };
+                break;
+        }
+
+        var recipients = (await conn.QueryAsync<EmailRecipient>(recipientSql, recipientParam)).ToList();
+
+        var sentCount = 0;
+        foreach (var r in recipients)
+        {
+            if (string.IsNullOrEmpty(r.Email)) continue;
+            try
+            {
+                var html = EmailTemplates.AnnouncementPublished(ann.OrgName, r.FullName, ann.Title, ann.Body, ann.Category, ann.AuthorName);
+                await emailService.SendAsync(r.Email, $"Yeni Duyuru — {ann.Title}", html, ct);
+                sentCount++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "announcement_email: {Email} adresine email gönderilemedi.", r.Email);
+            }
+        }
+
+        _logger.LogInformation("announcement_email: {AnnouncementId} — {SentCount}/{TotalCount} email gönderildi.",
+            announcementId, sentCount, recipients.Count);
+    }
+
     private record JobRow(Guid Id, string JobType, string Payload);
     private record ReminderRecipient(string FullName, string? Email, decimal TotalOwed);
     private record EmailRecipient(string FullName, string? Email);
@@ -415,4 +515,5 @@ public class BackgroundJobService : BackgroundService
     private record PaymentEmailDetail(string ReceiptNumber, decimal Amount, string PeriodName, string OrgName);
     private record FinanceTotalsRow(decimal TotalIncome, decimal TotalExpense);
     private record TopCategoryRow(string Name, decimal Amount);
+    private record AnnouncementEmailInfo(string Title, string Body, string Category, string TargetType, string? TargetIds, string OrgName, string AuthorName);
 }
