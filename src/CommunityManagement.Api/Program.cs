@@ -103,5 +103,9 @@ app.MapFinanceOpeningBalanceEndpoints();
 app.MapAnnouncementEndpoints();
 app.MapNotificationEndpoints();
 app.MapMaintenanceRequestEndpoints();
+app.MapAgendaEndpoints();
+app.MapPollEndpoints();
+app.MapDecisionEndpoints();
+app.MapMeetingEndpoints();
 
 app.Run();

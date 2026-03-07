@@ -45,7 +45,7 @@ public class BackgroundJobService : BackgroundService
                 """
                 SELECT id, job_type, payload
                 FROM public.background_jobs
-                WHERE job_type IN ('due_reminder','late_notice','payment_email','payment_cancel_email','monthly_finance_summary','announcement_email','maintenance_status_email','maintenance_sla_email')
+                WHERE job_type IN ('due_reminder','late_notice','payment_email','payment_cancel_email','monthly_finance_summary','announcement_email','maintenance_status_email','maintenance_sla_email','poll_created_email','poll_reminder_notification','poll_result_notification','meeting_created_email','decision_updated_notification')
                   AND status = 'queued'
                 ORDER BY created_at ASC
                 LIMIT 10
@@ -99,6 +99,13 @@ public class BackgroundJobService : BackgroundService
                     break;
                 case "maintenance_sla_email":
                     await ProcessMaintenanceSlaEmailAsync(factory, emailService, job, ct);
+                    break;
+                case "poll_created_email":
+                case "poll_reminder_notification":
+                case "poll_result_notification":
+                case "meeting_created_email":
+                case "decision_updated_notification":
+                    _logger.LogInformation("Job {JobType} islendi (bildirimler handler'da olusturuldu).", job.JobType);
                     break;
                 default:
                     _logger.LogWarning("Bilinmeyen job tipi: {JobType}", job.JobType);
