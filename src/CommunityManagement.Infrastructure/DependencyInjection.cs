@@ -48,6 +48,7 @@ public static class DependencyInjection
         services.AddScoped<IFinanceBudgetRepository, FinanceBudgetRepository>();
         services.AddScoped<IAnnouncementRepository, AnnouncementRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
+        services.AddScoped<IMaintenanceRequestRepository, MaintenanceRequestRepository>();
 
         // Services
         services.AddHttpContextAccessor();

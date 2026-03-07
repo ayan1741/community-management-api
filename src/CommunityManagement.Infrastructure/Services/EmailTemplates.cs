@@ -1,7 +1,10 @@
+using System.Net;
+
 namespace CommunityManagement.Infrastructure.Services;
 
 public static class EmailTemplates
 {
+    private static string E(string s) => WebUtility.HtmlEncode(s);
     private static string Wrap(string orgName, string title, string body) => $$"""
         <!DOCTYPE html>
         <html lang="tr">
@@ -121,4 +124,100 @@ public static class EmailTemplates
             <p>Daha fazla bilgi ve tüm eklentiler için KomşuNet uygulamasını ziyaret edin.</p>
             """);
     }
+
+    // --- Arıza Bildirimi: Yeni arıza (admin'lere) ---
+    public static string MaintenanceRequestCreated(
+        string orgName, string fullName, string title, string category, string priority,
+        string reportedByName, string locationInfo)
+    {
+        var categoryLabel = MapCategory(category);
+        var priorityLabel = MapPriority(priority);
+        var priorityColor = priority switch { "acil" => "#dc2626", "yuksek" => "#f59e0b", _ => "#6b7280" };
+
+        return Wrap(orgName, $"Sayın {E(fullName)},", $"""
+            <p>Yeni bir arıza bildirimi yapıldı:</p>
+            <p><strong>{E(title)}</strong></p>
+            <p style="color:#6b7280;font-size:13px;">
+                Kategori: {categoryLabel} &middot;
+                Öncelik: <span style="color:{priorityColor};font-weight:bold;">{priorityLabel}</span> &middot;
+                Bildiren: {E(reportedByName)}
+            </p>
+            <p>Konum: {E(locationInfo)}</p>
+            <p>Detaylar için KomşuNet uygulamasını ziyaret edin.</p>
+            """);
+    }
+
+    // --- Arıza Bildirimi: Durum değişikliği (sakine) ---
+    public static string MaintenanceRequestStatusChanged(
+        string orgName, string fullName, string title, string newStatus, string? note)
+    {
+        var statusLabel = MapStatus(newStatus);
+        var extraMessage = newStatus == "resolved"
+            ? "<p style=\"margin-top:12px;color:#16a34a;\"><strong>Arızanız çözüldü! Memnuniyet puanı vermek ister misiniz?</strong></p>"
+            : "";
+
+        return Wrap(orgName, $"Sayın {E(fullName)},", $"""
+            <p>Arıza bildiriminizin durumu güncellendi:</p>
+            <p><strong>{E(title)}</strong></p>
+            <p>Yeni durum: <strong>{statusLabel}</strong></p>
+            {(note is not null ? $"<p style=\"color:#6b7280;\">Not: {E(note)}</p>" : "")}
+            {extraMessage}
+            <p>Detaylar için KomşuNet uygulamasını ziyaret edin.</p>
+            """);
+    }
+
+    // --- Arıza Bildirimi: Yeni yorum ---
+    public static string MaintenanceRequestComment(
+        string orgName, string fullName, string title, string commentByName, string commentContent)
+    {
+        var truncated = commentContent.Length > 300 ? commentContent[..300] + "..." : commentContent;
+
+        return Wrap(orgName, $"Sayın {E(fullName)},", $"""
+            <p>Arıza bildiriminize yeni bir yorum eklendi:</p>
+            <p><strong>{E(title)}</strong></p>
+            <p style="color:#6b7280;font-size:13px;">Yazan: {E(commentByName)}</p>
+            <p style="white-space:pre-wrap;background:#f9fafb;padding:12px;border-radius:8px;">{E(truncated)}</p>
+            <p>Detaylar için KomşuNet uygulamasını ziyaret edin.</p>
+            """);
+    }
+
+    // --- Arıza Bildirimi: SLA aşıldı (admin'lere) ---
+    public static string MaintenanceRequestSlaBreached(
+        string orgName, string fullName, string title, string category, string priority,
+        string reportedByName, DateTimeOffset slaDeadline)
+    {
+        var categoryLabel = MapCategory(category);
+        return Wrap(orgName, $"Sayın {E(fullName)},", $"""
+            <p style="color:#dc2626;font-weight:bold;">SLA süresi aşıldı!</p>
+            <p><strong>{E(title)}</strong></p>
+            <p style="color:#6b7280;font-size:13px;">
+                Kategori: {categoryLabel} &middot; Bildiren: {E(reportedByName)}
+            </p>
+            <p>Hedef çözüm zamanı: <strong>{slaDeadline:dd.MM.yyyy HH:mm}</strong></p>
+            <p>Lütfen en kısa sürede ilgilenin.</p>
+            """);
+    }
+
+    // --- Helper'lar ---
+    private static string MapCategory(string cat) => cat switch
+    {
+        "elektrik" => "Elektrik", "su_tesisati" => "Su Tesisatı",
+        "asansor" => "Asansör", "ortak_alan" => "Ortak Alan",
+        "boya_badana" => "Boya/Badana", "isitma_sogutma" => "Isıtma/Soğutma",
+        "guvenlik" => "Güvenlik", "diger" => "Diğer", _ => cat
+    };
+
+    private static string MapPriority(string p) => p switch
+    {
+        "dusuk" => "Düşük", "normal" => "Normal",
+        "yuksek" => "Yüksek", "acil" => "Acil", _ => p
+    };
+
+    private static string MapStatus(string s) => s switch
+    {
+        "reported" => "Bildirildi", "in_review" => "İnceleniyor",
+        "assigned" => "Atandı", "in_progress" => "İşlemde",
+        "resolved" => "Çözüldü", "closed" => "Kapatıldı",
+        "cancelled" => "İptal Edildi", _ => s
+    };
 }

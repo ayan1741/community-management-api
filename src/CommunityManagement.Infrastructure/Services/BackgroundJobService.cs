@@ -45,7 +45,7 @@ public class BackgroundJobService : BackgroundService
                 """
                 SELECT id, job_type, payload
                 FROM public.background_jobs
-                WHERE job_type IN ('due_reminder','late_notice','payment_email','payment_cancel_email','monthly_finance_summary','announcement_email')
+                WHERE job_type IN ('due_reminder','late_notice','payment_email','payment_cancel_email','monthly_finance_summary','announcement_email','maintenance_status_email','maintenance_sla_email')
                   AND status = 'queued'
                 ORDER BY created_at ASC
                 LIMIT 10
@@ -93,6 +93,12 @@ public class BackgroundJobService : BackgroundService
                     break;
                 case "announcement_email":
                     await ProcessAnnouncementEmailAsync(factory, emailService, job, ct);
+                    break;
+                case "maintenance_status_email":
+                    await ProcessMaintenanceStatusEmailAsync(factory, emailService, job, ct);
+                    break;
+                case "maintenance_sla_email":
+                    await ProcessMaintenanceSlaEmailAsync(factory, emailService, job, ct);
                     break;
                 default:
                     _logger.LogWarning("Bilinmeyen job tipi: {JobType}", job.JobType);
@@ -507,6 +513,214 @@ public class BackgroundJobService : BackgroundService
             announcementId, sentCount, recipients.Count);
     }
 
+    private async Task ProcessMaintenanceStatusEmailAsync(IDbConnectionFactory factory, IEmailService emailService, JobRow job, CancellationToken ct)
+    {
+        var payload = JsonSerializer.Deserialize<JsonElement>(job.Payload);
+        var mrId = payload.GetProperty("MaintenanceRequestId").GetGuid();
+        var orgId = payload.GetProperty("OrganizationId").GetGuid();
+        var newStatus = payload.GetProperty("NewStatus").GetString()!;
+
+        using var conn = factory.CreateServiceRoleConnection();
+
+        var mr = await conn.QuerySingleOrDefaultAsync<MaintenanceEmailInfo>(
+            """
+            SELECT mr.title, mr.category, mr.priority, mr.reported_by,
+                   mr.location_type, mr.location_note,
+                   o.name AS org_name, p.full_name AS reported_by_name
+            FROM public.maintenance_requests mr
+            JOIN public.organizations o ON o.id = mr.organization_id
+            JOIN public.profiles p ON p.id = mr.reported_by
+            WHERE mr.id = @Id AND mr.deleted_at IS NULL
+            """,
+            new { Id = mrId });
+
+        if (mr is null)
+        {
+            _logger.LogWarning("maintenance_status_email: {MrId} ariza bulunamadi.", mrId);
+            return;
+        }
+
+        var locationInfo = mr.LocationType == "common_area" ? "Ortak Alan" : (mr.LocationNote ?? "Daire");
+        string? note = payload.TryGetProperty("Note", out var noteProp) ? noteProp.GetString() : null;
+
+        if (newStatus == "reported")
+        {
+            // Yeni ariza → admin'lere email
+            var admins = (await conn.QueryAsync<EmailRecipient>(
+                """
+                SELECT DISTINCT p.full_name, au.email
+                FROM public.organization_members om
+                JOIN public.profiles p ON p.id = om.user_id
+                JOIN auth.users au ON au.id = om.user_id
+                WHERE om.organization_id = @OrgId AND om.role = 'admin' AND om.status = 'active'
+                  AND p.notification_email = true
+                """,
+                new { OrgId = orgId })).ToList();
+
+            foreach (var r in admins)
+            {
+                if (string.IsNullOrEmpty(r.Email)) continue;
+                var html = EmailTemplates.MaintenanceRequestCreated(
+                    mr.OrgName, r.FullName, mr.Title, mr.Category, mr.Priority,
+                    mr.ReportedByName, locationInfo);
+                await emailService.SendAsync(r.Email, $"Yeni Arıza — {mr.Title}", html, ct);
+            }
+        }
+        else if (newStatus == "comment")
+        {
+            // Yorum → karsi tarafa email
+            var commentBy = payload.GetProperty("CommentBy").GetGuid();
+            var commentContent = payload.GetProperty("CommentContent").GetString() ?? "";
+
+            if (commentBy == mr.ReportedBy)
+            {
+                // Sakin yazdi → admin'lere
+                var admins = (await conn.QueryAsync<EmailRecipient>(
+                    """
+                    SELECT DISTINCT p.full_name, au.email
+                    FROM public.organization_members om
+                    JOIN public.profiles p ON p.id = om.user_id
+                    JOIN auth.users au ON au.id = om.user_id
+                    WHERE om.organization_id = @OrgId AND om.role = 'admin' AND om.status = 'active'
+                      AND p.notification_email = true
+                    """,
+                    new { OrgId = orgId })).ToList();
+
+                var commentByName = mr.ReportedByName;
+                foreach (var r in admins)
+                {
+                    if (string.IsNullOrEmpty(r.Email)) continue;
+                    var html = EmailTemplates.MaintenanceRequestComment(
+                        mr.OrgName, r.FullName, mr.Title, commentByName, commentContent);
+                    await emailService.SendAsync(r.Email, $"Arıza Yorumu — {mr.Title}", html, ct);
+                }
+            }
+            else
+            {
+                // Admin yazdi → bildiren sakine
+                var commentByProfile = await conn.QuerySingleOrDefaultAsync<string>(
+                    "SELECT full_name FROM public.profiles WHERE id = @Id",
+                    new { Id = commentBy });
+                var commentByName = commentByProfile ?? "Yönetici";
+
+                var recipient = await conn.QuerySingleOrDefaultAsync<EmailRecipient>(
+                    """
+                    SELECT p.full_name, au.email
+                    FROM public.profiles p
+                    JOIN auth.users au ON au.id = p.id
+                    WHERE p.id = @Id AND p.notification_email = true
+                    """,
+                    new { Id = mr.ReportedBy });
+
+                if (recipient is not null && !string.IsNullOrEmpty(recipient.Email))
+                {
+                    var html = EmailTemplates.MaintenanceRequestComment(
+                        mr.OrgName, recipient.FullName, mr.Title, commentByName, commentContent);
+                    await emailService.SendAsync(recipient.Email, $"Arıza Yorumu — {mr.Title}", html, ct);
+                }
+            }
+        }
+        else
+        {
+            // Durum degisikligi → bildiren sakine email
+            var recipient = await conn.QuerySingleOrDefaultAsync<EmailRecipient>(
+                """
+                SELECT p.full_name, au.email
+                FROM public.profiles p
+                JOIN auth.users au ON au.id = p.id
+                WHERE p.id = @Id AND p.notification_email = true
+                """,
+                new { Id = mr.ReportedBy });
+
+            if (recipient is not null && !string.IsNullOrEmpty(recipient.Email))
+            {
+                var html = EmailTemplates.MaintenanceRequestStatusChanged(
+                    mr.OrgName, recipient.FullName, mr.Title, newStatus, note);
+                await emailService.SendAsync(recipient.Email, $"Arıza Durumu — {mr.Title}", html, ct);
+            }
+        }
+
+        _logger.LogInformation("maintenance_status_email: {MrId} — status={Status}", mrId, newStatus);
+    }
+
+    private async Task ProcessMaintenanceSlaEmailAsync(IDbConnectionFactory factory, IEmailService emailService, JobRow job, CancellationToken ct)
+    {
+        var payload = JsonSerializer.Deserialize<JsonElement>(job.Payload);
+        var mrId = payload.GetProperty("maintenance_request_id").GetGuid();
+        var orgId = payload.GetProperty("organization_id").GetGuid();
+
+        using var conn = factory.CreateServiceRoleConnection();
+
+        var mr = await conn.QuerySingleOrDefaultAsync<MaintenanceSlaInfo>(
+            """
+            SELECT mr.title, mr.category, mr.priority, mr.sla_deadline_at,
+                   o.name AS org_name, p.full_name AS reported_by_name
+            FROM public.maintenance_requests mr
+            JOIN public.organizations o ON o.id = mr.organization_id
+            JOIN public.profiles p ON p.id = mr.reported_by
+            WHERE mr.id = @Id AND mr.deleted_at IS NULL
+            """,
+            new { Id = mrId });
+
+        if (mr is null)
+        {
+            _logger.LogWarning("maintenance_sla_email: {MrId} ariza bulunamadi.", mrId);
+            return;
+        }
+
+        var admins = (await conn.QueryAsync<EmailRecipient>(
+            """
+            SELECT DISTINCT p.full_name, au.email
+            FROM public.organization_members om
+            JOIN public.profiles p ON p.id = om.user_id
+            JOIN auth.users au ON au.id = om.user_id
+            WHERE om.organization_id = @OrgId AND om.role = 'admin' AND om.status = 'active'
+              AND p.notification_email = true
+            """,
+            new { OrgId = orgId })).ToList();
+
+        var slaDeadline = mr.SlaDeadlineAt.HasValue
+            ? new DateTimeOffset(mr.SlaDeadlineAt.Value, TimeSpan.Zero)
+            : DateTimeOffset.UtcNow;
+
+        foreach (var r in admins)
+        {
+            if (string.IsNullOrEmpty(r.Email)) continue;
+            var html = EmailTemplates.MaintenanceRequestSlaBreached(
+                mr.OrgName, r.FullName, mr.Title, mr.Category, mr.Priority,
+                mr.ReportedByName, slaDeadline);
+            await emailService.SendAsync(r.Email, $"SLA Aşıldı — {mr.Title}", html, ct);
+        }
+
+        // In-app notification (admin user_id'leri ayrıca al)
+        var adminUserIds = await conn.QueryAsync<Guid>(
+            """
+            SELECT user_id FROM public.organization_members
+            WHERE organization_id = @OrgId AND role = 'admin' AND status = 'active'
+            """,
+            new { OrgId = orgId });
+
+        foreach (var adminUserId in adminUserIds)
+        {
+            await conn.ExecuteAsync(
+                """
+                INSERT INTO public.notifications
+                    (id, organization_id, user_id, type, title, body, reference_type, reference_id, created_at)
+                VALUES (@Id, @OrgId, @UserId, 'maintenance_sla_breached', @Title, @Body,
+                        'maintenance_request', @RefId, now())
+                """,
+                new
+                {
+                    Id = Guid.NewGuid(), OrgId = orgId, UserId = adminUserId,
+                    Title = $"SLA Aşıldı: {mr.Title}",
+                    Body = $"{mr.Category} — SLA süresi doldu",
+                    RefId = mrId
+                });
+        }
+
+        _logger.LogInformation("maintenance_sla_email: {MrId} — {Count} admin'e email gönderildi.", mrId, admins.Count);
+    }
+
     private record JobRow(Guid Id, string JobType, string Payload);
     private record ReminderRecipient(string FullName, string? Email, decimal TotalOwed);
     private record EmailRecipient(string FullName, string? Email);
@@ -516,4 +730,6 @@ public class BackgroundJobService : BackgroundService
     private record FinanceTotalsRow(decimal TotalIncome, decimal TotalExpense);
     private record TopCategoryRow(string Name, decimal Amount);
     private record AnnouncementEmailInfo(string Title, string Body, string Category, string TargetType, string? TargetIds, string OrgName, string AuthorName);
+    private record MaintenanceEmailInfo(string Title, string Category, string Priority, Guid ReportedBy, string LocationType, string? LocationNote, string OrgName, string ReportedByName);
+    private record MaintenanceSlaInfo(string Title, string Category, string Priority, DateTime? SlaDeadlineAt, string OrgName, string ReportedByName);
 }
