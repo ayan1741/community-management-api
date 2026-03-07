@@ -1,7 +1,10 @@
+using System.Net;
+
 namespace CommunityManagement.Infrastructure.Services;
 
 public static class EmailTemplates
 {
+    private static string E(string s) => WebUtility.HtmlEncode(s);
     private static string Wrap(string orgName, string title, string body) => $$"""
         <!DOCTYPE html>
         <html lang="tr">
@@ -131,15 +134,15 @@ public static class EmailTemplates
         var priorityLabel = MapPriority(priority);
         var priorityColor = priority switch { "acil" => "#dc2626", "yuksek" => "#f59e0b", _ => "#6b7280" };
 
-        return Wrap(orgName, $"Sayın {fullName},", $"""
+        return Wrap(orgName, $"Sayın {E(fullName)},", $"""
             <p>Yeni bir arıza bildirimi yapıldı:</p>
-            <p><strong>{title}</strong></p>
+            <p><strong>{E(title)}</strong></p>
             <p style="color:#6b7280;font-size:13px;">
                 Kategori: {categoryLabel} &middot;
                 Öncelik: <span style="color:{priorityColor};font-weight:bold;">{priorityLabel}</span> &middot;
-                Bildiren: {reportedByName}
+                Bildiren: {E(reportedByName)}
             </p>
-            <p>Konum: {locationInfo}</p>
+            <p>Konum: {E(locationInfo)}</p>
             <p>Detaylar için KomşuNet uygulamasını ziyaret edin.</p>
             """);
     }
@@ -153,11 +156,11 @@ public static class EmailTemplates
             ? "<p style=\"margin-top:12px;color:#16a34a;\"><strong>Arızanız çözüldü! Memnuniyet puanı vermek ister misiniz?</strong></p>"
             : "";
 
-        return Wrap(orgName, $"Sayın {fullName},", $"""
+        return Wrap(orgName, $"Sayın {E(fullName)},", $"""
             <p>Arıza bildiriminizin durumu güncellendi:</p>
-            <p><strong>{title}</strong></p>
+            <p><strong>{E(title)}</strong></p>
             <p>Yeni durum: <strong>{statusLabel}</strong></p>
-            {(note is not null ? $"<p style=\"color:#6b7280;\">Not: {note}</p>" : "")}
+            {(note is not null ? $"<p style=\"color:#6b7280;\">Not: {E(note)}</p>" : "")}
             {extraMessage}
             <p>Detaylar için KomşuNet uygulamasını ziyaret edin.</p>
             """);
@@ -169,11 +172,11 @@ public static class EmailTemplates
     {
         var truncated = commentContent.Length > 300 ? commentContent[..300] + "..." : commentContent;
 
-        return Wrap(orgName, $"Sayın {fullName},", $"""
+        return Wrap(orgName, $"Sayın {E(fullName)},", $"""
             <p>Arıza bildiriminize yeni bir yorum eklendi:</p>
-            <p><strong>{title}</strong></p>
-            <p style="color:#6b7280;font-size:13px;">Yazan: {commentByName}</p>
-            <p style="white-space:pre-wrap;background:#f9fafb;padding:12px;border-radius:8px;">{truncated}</p>
+            <p><strong>{E(title)}</strong></p>
+            <p style="color:#6b7280;font-size:13px;">Yazan: {E(commentByName)}</p>
+            <p style="white-space:pre-wrap;background:#f9fafb;padding:12px;border-radius:8px;">{E(truncated)}</p>
             <p>Detaylar için KomşuNet uygulamasını ziyaret edin.</p>
             """);
     }
@@ -184,11 +187,11 @@ public static class EmailTemplates
         string reportedByName, DateTimeOffset slaDeadline)
     {
         var categoryLabel = MapCategory(category);
-        return Wrap(orgName, $"Sayın {fullName},", $"""
+        return Wrap(orgName, $"Sayın {E(fullName)},", $"""
             <p style="color:#dc2626;font-weight:bold;">SLA süresi aşıldı!</p>
-            <p><strong>{title}</strong></p>
+            <p><strong>{E(title)}</strong></p>
             <p style="color:#6b7280;font-size:13px;">
-                Kategori: {categoryLabel} &middot; Bildiren: {reportedByName}
+                Kategori: {categoryLabel} &middot; Bildiren: {E(reportedByName)}
             </p>
             <p>Hedef çözüm zamanı: <strong>{slaDeadline:dd.MM.yyyy HH:mm}</strong></p>
             <p>Lütfen en kısa sürede ilgilenin.</p>
