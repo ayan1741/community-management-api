@@ -49,6 +49,10 @@ public static class DependencyInjection
         services.AddScoped<IAnnouncementRepository, AnnouncementRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
         services.AddScoped<IMaintenanceRequestRepository, MaintenanceRequestRepository>();
+        services.AddScoped<IAgendaRepository, AgendaRepository>();
+        services.AddScoped<IPollRepository, PollRepository>();
+        services.AddScoped<IDecisionRepository, DecisionRepository>();
+        services.AddScoped<IMeetingRepository, MeetingRepository>();
 
         // Services
         services.AddHttpContextAccessor();
